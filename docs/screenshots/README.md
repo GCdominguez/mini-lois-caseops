@@ -1,6 +1,12 @@
 # Screenshots
 
-These SVG previews document the v0.2 demo flow.
+These screenshots document the Mini LOIS demo flow.
+
+## Matter summary with no actionable recommendations
+
+This cropped screenshot shows Mini LOIS summarizing a matter in plain language while the action panel correctly detects that the answer does not contain discrete task recommendations.
+
+![Matter summary with no actionable recommendations](./04-matter-summary-no-actions.png)
 
 ## v0.2 home / matter-scoped RAG
 
@@ -16,11 +22,12 @@ These SVG previews document the v0.2 demo flow.
 
 ## Demo story
 
-The v0.2 flow demonstrates the product control loop:
+The demo flow demonstrates the product control loop:
 
 1. Select a scoped matter.
 2. Ask a source-grounded question.
-3. Generate an action proposal.
-4. Edit the operational fields before approval.
-5. Write the approved action to the matter record.
-6. Preserve both the original model proposal and final approved action in the audit log.
+3. Extract task candidates only when the answer contains discrete recommendations.
+4. Generate an action proposal or task batch.
+5. Edit the operational fields before approval.
+6. Write the approved action to the matter record.
+7. Preserve both the original model proposal and final approved action in the audit log.
