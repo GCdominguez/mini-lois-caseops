@@ -1,0 +1,35 @@
+[
+  {
+    "matter_id": "MAT-1001",
+    "matter_name": "Johnson v. RideshareCo",
+    "matter_type": "Personal Injury",
+    "client": "Alicia Johnson",
+    "phase": "Pre-mediation discovery",
+    "lead_attorney": "Dana Cruz",
+    "paralegal": "Miguel Santos",
+    "status": "Active",
+    "open_date": "2026-04-12"
+  },
+  {
+    "matter_id": "MAT-1002",
+    "matter_name": "Acme Supply Contract Review",
+    "matter_type": "Commercial Contract",
+    "client": "Acme Supply LLC",
+    "phase": "Redline review",
+    "lead_attorney": "Renee Wallace",
+    "paralegal": "Nora Patel",
+    "status": "Active",
+    "open_date": "2026-05-03"
+  },
+  {
+    "matter_id": "MAT-1003",
+    "matter_name": "Martinez Employment Claim",
+    "matter_type": "Employment",
+    "client": "Luis Martinez",
+    "phase": "Demand package preparation",
+    "lead_attorney": "Dana Cruz",
+    "paralegal": "Nora Patel",
+    "status": "Active",
+    "open_date": "2026-05-18"
+  }
+]
