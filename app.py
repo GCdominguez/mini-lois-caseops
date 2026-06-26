@@ -349,22 +349,22 @@ def render_pending_action_editor(prefix: str, matter: dict[str, Any], action_req
 
 def render_candidate_task_picker(answer: str, matter: dict[str, Any]) -> None:
     candidates = extract_task_candidates(answer)
+    st.markdown("#### Quick task actions")
     if not candidates:
-        st.info("No discrete task candidates were detected in this answer. Ask Mini LOIS for recommendations or next steps to generate task cards.")
+        st.caption("No discrete recommendations detected.")
         return
 
-    st.markdown("### Candidate tasks from answer")
-    st.caption("Create one task, or create all as a batch. Nothing writes to the matter record until you approve the batch.")
+    st.caption("Draft tasks directly from answer bullets. Approval still happens before write-back.")
     source_refs = [s["source_id"] for s in st.session_state.get("last_answer_sources", [])]
 
-    if st.button("Create all as separate draft tasks", type="primary"):
+    if st.button("Draft all", type="primary", key="draft_all_inline_tasks"):
         set_answer_task_batch([candidate_to_task(candidate, matter) for candidate in candidates], source_refs)
         st.rerun()
 
     for index, candidate in enumerate(candidates):
-        cols = st.columns([5, 1])
-        cols[0].write(candidate)
-        if cols[1].button("Create task", key=f"candidate_task_{index}"):
+        short_label = candidate if len(candidate) <= 58 else candidate[:55] + "..."
+        st.caption(short_label)
+        if st.button("Create task", key=f"candidate_task_{index}"):
             set_answer_task_batch([candidate_to_task(candidate, matter)], source_refs)
             st.rerun()
 
@@ -430,7 +430,7 @@ def render_batch_task_editor(matter: dict[str, Any]) -> None:
 
 st.title("Mini LOIS: CaseOps AI")
 st.caption(
-    "Local prototype: matter-scoped RAG, source-cited answers, task extraction, editable approval, write-back, and audit trail."
+    "Local prototype: matter-scoped RAG, source-cited answers, inline task extraction, editable approval, write-back, and audit trail."
 )
 
 matters = get_matters()
@@ -445,7 +445,7 @@ with st.sidebar:
     selected_matter_id = selected_label.split(" · ")[0]
     matter = get_matter(selected_matter_id)
     st.info("Run `python ingest.py` before asking questions so Chroma has indexed the fake matter docs.")
-    st.caption("v0.4 extracts answer recommendations into task candidates.")
+    st.caption("v0.4.1 shows task buttons beside the answer.")
 
 if matter is None:
     st.error("Selected matter not found.")
@@ -479,11 +479,15 @@ with ask_tab:
             st.error(f"Question failed: {exc}")
 
     if st.session_state.get("last_answer"):
-        st.markdown("### Answer")
-        st.write(st.session_state["last_answer"])
-        render_sources(st.session_state.get("last_answer_sources", []), heading="### Retrieved sources")
-        render_candidate_task_picker(st.session_state["last_answer"], matter)
+        answer_col, quick_action_col = st.columns([3, 1])
+        with answer_col:
+            st.markdown("### Answer")
+            st.write(st.session_state["last_answer"])
+        with quick_action_col:
+            render_candidate_task_picker(st.session_state["last_answer"], matter)
+
         render_batch_task_editor(matter)
+        render_sources(st.session_state.get("last_answer_sources", []), heading="### Retrieved sources")
 
 with action_tab:
     st.markdown(
