@@ -98,6 +98,61 @@ def _clean_candidate(candidate: str) -> str:
     return candidate
 
 
+def _is_vague_candidate(candidate: str) -> bool:
+    lower = candidate.lower()
+    vague_phrases = (
+        "pieces of the puzzle",
+        "fill in",
+        "move forward",
+        "build a strong case",
+        "better understanding",
+        "more information",
+        "keep an eye out",
+        "point of contention",
+        "potential defense",
+        "potentially complicate",
+        "case could",
+        "client's case",
+    )
+    if any(phrase in lower for phrase in vague_phrases):
+        return True
+
+    concrete_terms = (
+        "record",
+        "records",
+        "report",
+        "ledger",
+        "witness",
+        "policy",
+        "policies",
+        "coverage",
+        "communication",
+        "email",
+        "document",
+        "documents",
+        "protocol",
+        "template",
+        "claim",
+        "claims",
+    )
+    action_terms = (
+        "request",
+        "requesting",
+        "obtain",
+        "obtaining",
+        "contact",
+        "contacting",
+        "review",
+        "reviewing",
+        "collect",
+        "collecting",
+        "follow up",
+    )
+    starts_with_action = lower.startswith(action_terms)
+    contains_concrete_object = any(term in lower for term in concrete_terms)
+    return starts_with_action and not contains_concrete_object
+
+
 def _add_candidate(candidates: list[str], candidate: str) -> None:
     candidate = _clean_candidate(candidate)
     lower = candidate.lower()
@@ -108,6 +163,8 @@ def _add_candidate(candidates: list[str], candidate: str) -> None:
     if lower.startswith(("however", "unfortunately", "without more information")):
         return
     if lower in {"those missing documents", "missing documents", "requesting those missing documents"}:
+        return
+    if _is_vague_candidate(candidate):
         return
     if candidate not in candidates:
         candidates.append(candidate)
@@ -575,7 +632,7 @@ with st.sidebar:
     selected_matter_id = selected_label.split(" · ")[0]
     matter = get_matter(selected_matter_id)
     st.info("Run `python ingest.py` before asking questions so Chroma has indexed the fake matter docs.")
-    st.caption("v0.4.4 adds fallback detection for matter gap tasks.")
+    st.caption("v0.4.5 filters vague task candidates.")
 
 if matter is None:
     st.error("Selected matter not found.")
