@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import date, datetime
 from typing import Any
 
@@ -86,6 +87,98 @@ def render_sources(sources: list[dict[str, Any]], heading: str = "### Evidence u
     for source in sources:
         with st.expander(f"{source['source_id']} · {source['source_file']} · chunk {source['chunk_index']}"):
             st.write(source["text"])
+
+
+def extract_task_candidates(answer: str) -> list[str]:
+    """Extract short actionable recommendations from a Mini LOIS answer."""
+    candidates: list[str] = []
+    capture_following_lines = False
+
+    for raw_line in answer.splitlines():
+        line = raw_line.strip()
+        if not line:
+            capture_following_lines = False
+            continue
+
+        lower = line.lower()
+        if lower.endswith("such as:") or lower.endswith("including:") or lower.endswith("for example:"):
+            capture_following_lines = True
+            continue
+
+        bullet_match = re.match(r"^(?:[-*•]|\d+[.)])\s+(.*)$", line)
+        should_capture = capture_following_lines or bullet_match is not None
+        if not should_capture:
+            continue
+
+        candidate = bullet_match.group(1) if bullet_match else line
+        candidate = re.sub(r"^\*\*(.*?)\**$", r"\1", candidate).strip()
+        candidate = candidate.strip(" -•\t")
+        candidate = candidate.rstrip(".")
+
+        if len(candidate) < 8:
+            continue
+        if len(candidate) > 180:
+            continue
+        if candidate.lower().startswith(("however", "unfortunately", "without more information")):
+            continue
+        if candidate not in candidates:
+            candidates.append(candidate)
+
+    return candidates[:8]
+
+
+def candidate_to_task(candidate: str, matter: dict[str, Any]) -> dict[str, Any]:
+    base = candidate.strip().rstrip(".")
+    lower = base.lower()
+    verbs = (
+        "review",
+        "request",
+        "contact",
+        "obtain",
+        "follow up",
+        "check",
+        "confirm",
+        "prepare",
+        "draft",
+        "collect",
+    )
+    title = base if lower.startswith(verbs) else f"Review {base[:1].lower()}{base[1:]}"
+
+    return {
+        "action_type": "create_task",
+        "matter_id": matter["matter_id"],
+        "title": title,
+        "assigned_to": matter["paralegal"],
+        "due_date": None,
+        "reason": f"Created from Mini LOIS answer recommendation: {base}",
+    }
+
+
+def set_answer_task_batch(actions: list[dict[str, Any]], source_refs: list[str]) -> None:
+    st.session_state["answer_task_batch"] = actions
+    st.session_state["answer_task_batch_original"] = [dict(action) for action in actions]
+    st.session_state["answer_task_batch_source_refs"] = source_refs
+
+    for index, action in enumerate(actions):
+        st.session_state[f"batch_title_{index}"] = action.get("title", "")
+        st.session_state[f"batch_assigned_to_{index}"] = action.get("assigned_to")
+        st.session_state[f"batch_due_date_{index}"] = "" if action.get("due_date") is None else str(action.get("due_date"))
+        st.session_state[f"batch_reason_{index}"] = action.get("reason", "")
+
+
+def clear_answer_task_batch() -> None:
+    batch = st.session_state.get("answer_task_batch", [])
+    for index in range(len(batch)):
+        for key in [
+            f"batch_title_{index}",
+            f"batch_assigned_to_{index}",
+            f"batch_due_date_{index}",
+            f"batch_reason_{index}",
+        ]:
+            st.session_state.pop(key, None)
+    st.session_state.pop("answer_task_batch", None)
+    st.session_state.pop("answer_task_batch_original", None)
+    st.session_state.pop("answer_task_batch_source_refs", None)
 
 
 def build_edited_action_from_form(pending: dict[str, Any], matter: dict[str, Any], prefix: str) -> dict[str, Any]:
@@ -254,9 +347,90 @@ def render_pending_action_editor(prefix: str, matter: dict[str, Any], action_req
             st.error(f"Execution failed: {exc}")
 
 
+def render_candidate_task_picker(answer: str, matter: dict[str, Any]) -> None:
+    candidates = extract_task_candidates(answer)
+    if not candidates:
+        st.info("No discrete task candidates were detected in this answer. Ask Mini LOIS for recommendations or next steps to generate task cards.")
+        return
+
+    st.markdown("### Candidate tasks from answer")
+    st.caption("Create one task, or create all as a batch. Nothing writes to the matter record until you approve the batch.")
+    source_refs = [s["source_id"] for s in st.session_state.get("last_answer_sources", [])]
+
+    if st.button("Create all as separate draft tasks", type="primary"):
+        set_answer_task_batch([candidate_to_task(candidate, matter) for candidate in candidates], source_refs)
+        st.rerun()
+
+    for index, candidate in enumerate(candidates):
+        cols = st.columns([5, 1])
+        cols[0].write(candidate)
+        if cols[1].button("Create task", key=f"candidate_task_{index}"):
+            set_answer_task_batch([candidate_to_task(candidate, matter)], source_refs)
+            st.rerun()
+
+
+def render_batch_task_editor(matter: dict[str, Any]) -> None:
+    batch = st.session_state.get("answer_task_batch")
+    if not batch:
+        return
+
+    st.markdown("### Batch task approval")
+    st.caption("Edit each task, then approve the batch. Each approved task is written separately and audited.")
+
+    with st.form("answer_task_batch_form"):
+        for index, action in enumerate(batch):
+            st.markdown(f"#### Task {index + 1}")
+            st.text_input("Task title", key=f"batch_title_{index}")
+            assignee_options = [matter["paralegal"], matter["lead_attorney"], "Mini LOIS"]
+            current_assignee = st.session_state.get(f"batch_assigned_to_{index}") or matter["paralegal"]
+            if current_assignee not in assignee_options:
+                assignee_options.insert(0, current_assignee)
+            st.selectbox(
+                "Assigned to",
+                assignee_options,
+                index=assignee_options.index(current_assignee),
+                key=f"batch_assigned_to_{index}",
+            )
+            st.text_input("Due date (YYYY-MM-DD or blank)", key=f"batch_due_date_{index}")
+            st.text_area("Reason", key=f"batch_reason_{index}", height=80)
+
+        submitted = st.form_submit_button("Approve batch and create tasks", type="primary")
+
+    if st.button("Discard batch"):
+        clear_answer_task_batch()
+        st.rerun()
+
+    if submitted:
+        try:
+            originals = st.session_state.get("answer_task_batch_original", batch)
+            source_refs = st.session_state.get("answer_task_batch_source_refs", [])
+            for index, original_action in enumerate(originals):
+                edited_action = {
+                    "action_type": "create_task",
+                    "matter_id": matter["matter_id"],
+                    "title": st.session_state.get(f"batch_title_{index}", "").strip(),
+                    "assigned_to": st.session_state.get(f"batch_assigned_to_{index}") or matter["paralegal"],
+                    "due_date": parse_optional_date(st.session_state.get(f"batch_due_date_{index}")),
+                    "reason": st.session_state.get(f"batch_reason_{index}", "").strip(),
+                }
+                warnings = action_validation_warnings(edited_action, matter)
+                blocking = [warning for warning in warnings if "missing" in warning.lower() or "must use" in warning.lower()]
+                if blocking:
+                    for warning in blocking:
+                        st.error(f"Task {index + 1}: {warning}")
+                    st.stop()
+                execute_action(edited_action, source_refs, original_action=original_action)
+
+            st.success(f"Created {len(originals)} task(s).")
+            clear_answer_task_batch()
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Batch execution failed: {exc}")
+
+
 st.title("Mini LOIS: CaseOps AI")
 st.caption(
-    "Local prototype: matter-scoped RAG, source-cited answers, editable action approval, approved write-back, and audit trail."
+    "Local prototype: matter-scoped RAG, source-cited answers, task extraction, editable approval, write-back, and audit trail."
 )
 
 matters = get_matters()
@@ -271,7 +445,7 @@ with st.sidebar:
     selected_matter_id = selected_label.split(" · ")[0]
     matter = get_matter(selected_matter_id)
     st.info("Run `python ingest.py` before asking questions so Chroma has indexed the fake matter docs.")
-    st.caption("v0.3 adds create-task-from-answer flow.")
+    st.caption("v0.4 extracts answer recommendations into task candidates.")
 
 if matter is None:
     st.error("Selected matter not found.")
@@ -291,7 +465,7 @@ with ask_tab:
     st.markdown("Ask a question. The assistant should answer only from this matter's retrieved context and cite its sources.")
     question = st.text_area(
         "Question",
-        value="What are the key risks and next steps in this matter?",
+        value="What documentation should we review next?",
         height=110,
     )
     if st.button("Ask Mini LOIS", type="primary"):
@@ -300,6 +474,7 @@ with ask_tab:
             st.session_state["last_answer"] = answer
             st.session_state["last_answer_sources"] = sources
             st.session_state["last_question"] = question
+            clear_answer_task_batch()
         except Exception as exc:
             st.error(f"Question failed: {exc}")
 
@@ -307,25 +482,8 @@ with ask_tab:
         st.markdown("### Answer")
         st.write(st.session_state["last_answer"])
         render_sources(st.session_state.get("last_answer_sources", []), heading="### Retrieved sources")
-
-        st.markdown("### Turn an answer item into a task")
-        st.caption("Copy or rewrite one recommendation from the answer. Mini LOIS will draft an editable task proposal from it.")
-        task_from_answer = st.text_area(
-            "Task request from answer",
-            value="Create a task from this recommendation: ",
-            height=90,
-            key="ask_task_from_answer_request",
-        )
-        if st.button("Draft task from answer", key="ask_draft_task_from_answer"):
-            try:
-                request = f"Create a task for this matter based on the answer recommendation. {task_from_answer}"
-                action, sources = propose_action(request=request, matter=matter, model=model)
-                action["action_type"] = "create_task"
-                store_pending_action("ask", action, sources, request, matter)
-            except Exception as exc:
-                st.error(f"Task drafting failed: {exc}")
-
-        render_pending_action_editor("ask", matter, st.session_state.get("ask_task_from_answer_request", ""))
+        render_candidate_task_picker(st.session_state["last_answer"], matter)
+        render_batch_task_editor(matter)
 
 with action_tab:
     st.markdown(
