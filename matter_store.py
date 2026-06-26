@@ -149,8 +149,12 @@ def get_audit_log(matter_id: str | None = None, limit: int = 50) -> list[dict[st
     return _rows("SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (limit,))
 
 
-def execute_action(action: dict[str, Any], source_refs: list[str] | None = None) -> str:
-    """Execute a model-proposed action after the user approves it."""
+def execute_action(
+    action: dict[str, Any],
+    source_refs: list[str] | None = None,
+    original_action: dict[str, Any] | None = None,
+) -> str:
+    """Execute an approved action and record the final payload in the audit log."""
     action_type = action.get("action_type")
     matter_id = action.get("matter_id")
     now = datetime.now(timezone.utc).isoformat()
@@ -208,6 +212,16 @@ def execute_action(action: dict[str, Any], source_refs: list[str] | None = None)
         else:
             raise ValueError(f"Unsupported action_type: {action_type}")
 
+        audit_payload: dict[str, Any]
+        if original_action is not None:
+            audit_payload = {
+                "approved_action": action,
+                "original_model_proposal": original_action,
+                "human_edited": action != original_action,
+            }
+        else:
+            audit_payload = action
+
         conn.execute(
             """
             INSERT INTO audit_log (matter_id, action_type, action_payload, source_refs, created_at)
@@ -216,7 +230,7 @@ def execute_action(action: dict[str, Any], source_refs: list[str] | None = None)
             (
                 matter_id,
                 action_type,
-                json.dumps(action, indent=2),
+                json.dumps(audit_payload, indent=2),
                 json.dumps(source_refs or []),
                 now,
             ),
