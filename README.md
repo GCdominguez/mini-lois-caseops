@@ -45,7 +45,7 @@ flowchart LR
 Install Ollama first, then pull one chat model and one embedding model.
 
 ```bash
-ollama pull llama3.1:8b
+ollama pull llama3.2
 ollama pull nomic-embed-text
 ```
 
@@ -100,22 +100,3 @@ Potential next features:
 - Simulated webhook payloads.
 - Regression tests for retrieval quality.
 - MCP server wrapper around the local matter tools.
-
-## GitHub upload
-
-Create a new GitHub repository, then run:
-
-```bash
-git init
-git add .
-git commit -m "Initial Mini LOIS prototype"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/mini-lois-caseops.git
-git push -u origin main
-```
-
-Or with GitHub CLI:
-
-```bash
-gh repo create mini-lois-caseops --public --source=. --remote=origin --push
-```
