@@ -1,0 +1,19 @@
+Matter: Johnson v. RideshareCo
+Client: Alicia Johnson
+Type: Personal Injury
+
+Intake summary:
+Alicia Johnson was a passenger in a rideshare vehicle on March 22, 2026. The vehicle was rear-ended at a red light near Biscayne Boulevard. The client reports neck pain, lower back pain, and headaches that began the evening of the collision. She did not go to the emergency room that night but visited urgent care two days later.
+
+Known facts:
+- Police report requested but not yet received.
+- Rideshare trip receipt uploaded by client.
+- Driver identity confirmed through the app receipt.
+- Client has photos of vehicle damage.
+- Client says there were two witnesses at the scene, but she only has one phone number.
+
+Risks:
+The delayed treatment gap may be raised by the defense. Medical records are incomplete. The client has a prior lower back injury from 2021, which may complicate causation.
+
+Next steps discussed:
+Request urgent care records, request physical therapy records, obtain the police report, and contact the available witness.
