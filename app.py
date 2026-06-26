@@ -81,64 +81,177 @@ def action_validation_warnings(
     return warnings
 
 
-def render_sources(sources: list[dict[str, Any]]) -> None:
-    st.markdown("### Evidence used")
+def render_sources(sources: list[dict[str, Any]], heading: str = "### Evidence used") -> None:
+    st.markdown(heading)
     for source in sources:
         with st.expander(f"{source['source_id']} · {source['source_file']} · chunk {source['chunk_index']}"):
             st.write(source["text"])
 
 
-def build_edited_action_from_form(pending: dict[str, Any], matter: dict[str, Any]) -> dict[str, Any]:
+def build_edited_action_from_form(pending: dict[str, Any], matter: dict[str, Any], prefix: str) -> dict[str, Any]:
     action_type = pending.get("action_type")
 
     if action_type == "create_task":
         return {
             "action_type": "create_task",
             "matter_id": matter["matter_id"],
-            "title": st.session_state.get("edit_title", "").strip(),
-            "assigned_to": st.session_state.get("edit_assigned_to") or None,
-            "due_date": parse_optional_date(st.session_state.get("edit_due_date")),
-            "reason": st.session_state.get("edit_reason", "").strip(),
+            "title": st.session_state.get(f"{prefix}_edit_title", "").strip(),
+            "assigned_to": st.session_state.get(f"{prefix}_edit_assigned_to") or None,
+            "due_date": parse_optional_date(st.session_state.get(f"{prefix}_edit_due_date")),
+            "reason": st.session_state.get(f"{prefix}_edit_reason", "").strip(),
         }
 
     if action_type == "add_note":
         return {
             "action_type": "add_note",
             "matter_id": matter["matter_id"],
-            "note_text": st.session_state.get("edit_note_text", "").strip(),
-            "author": st.session_state.get("edit_author", "Mini LOIS").strip() or "Mini LOIS",
-            "reason": st.session_state.get("edit_reason", "").strip(),
+            "note_text": st.session_state.get(f"{prefix}_edit_note_text", "").strip(),
+            "author": st.session_state.get(f"{prefix}_edit_author", "Mini LOIS").strip() or "Mini LOIS",
+            "reason": st.session_state.get(f"{prefix}_edit_reason", "").strip(),
         }
 
     if action_type == "create_calendar_event":
         return {
             "action_type": "create_calendar_event",
             "matter_id": matter["matter_id"],
-            "title": st.session_state.get("edit_title", "").strip(),
-            "event_date": parse_optional_date(st.session_state.get("edit_event_date")),
-            "owner": st.session_state.get("edit_owner") or None,
-            "reason": st.session_state.get("edit_reason", "").strip(),
+            "title": st.session_state.get(f"{prefix}_edit_title", "").strip(),
+            "event_date": parse_optional_date(st.session_state.get(f"{prefix}_edit_event_date")),
+            "owner": st.session_state.get(f"{prefix}_edit_owner") or None,
+            "reason": st.session_state.get(f"{prefix}_edit_reason", "").strip(),
         }
 
     raise ValueError(f"Unsupported action_type: {action_type}")
 
 
-def clear_pending_action() -> None:
+def clear_pending_action(prefix: str) -> None:
     for key in [
-        "pending_action",
-        "pending_source_refs",
-        "pending_sources",
-        "pending_action_request",
-        "edit_title",
-        "edit_assigned_to",
-        "edit_due_date",
-        "edit_reason",
-        "edit_note_text",
-        "edit_author",
-        "edit_event_date",
-        "edit_owner",
+        f"{prefix}_pending_action",
+        f"{prefix}_pending_source_refs",
+        f"{prefix}_pending_sources",
+        f"{prefix}_pending_action_request",
+        f"{prefix}_edit_title",
+        f"{prefix}_edit_assigned_to",
+        f"{prefix}_edit_due_date",
+        f"{prefix}_edit_reason",
+        f"{prefix}_edit_note_text",
+        f"{prefix}_edit_author",
+        f"{prefix}_edit_event_date",
+        f"{prefix}_edit_owner",
     ]:
         st.session_state.pop(key, None)
+
+
+def store_pending_action(prefix: str, action: dict[str, Any], sources: list[dict[str, Any]], request: str, matter: dict[str, Any]) -> None:
+    st.session_state[f"{prefix}_pending_action"] = action
+    st.session_state[f"{prefix}_pending_source_refs"] = [s["source_id"] for s in sources]
+    st.session_state[f"{prefix}_pending_sources"] = sources
+    st.session_state[f"{prefix}_pending_action_request"] = request
+
+    st.session_state[f"{prefix}_edit_title"] = action.get("title", "")
+    st.session_state[f"{prefix}_edit_assigned_to"] = action.get("assigned_to") or matter["paralegal"]
+    st.session_state[f"{prefix}_edit_due_date"] = "" if action.get("due_date") is None else str(action.get("due_date"))
+    st.session_state[f"{prefix}_edit_reason"] = action.get("reason", "")
+    st.session_state[f"{prefix}_edit_note_text"] = action.get("note_text", "")
+    st.session_state[f"{prefix}_edit_author"] = action.get("author", "Mini LOIS")
+    st.session_state[f"{prefix}_edit_event_date"] = "" if action.get("event_date") is None else str(action.get("event_date"))
+    st.session_state[f"{prefix}_edit_owner"] = action.get("owner") or matter["paralegal"]
+
+
+def render_pending_action_editor(prefix: str, matter: dict[str, Any], action_request: str) -> None:
+    pending = st.session_state.get(f"{prefix}_pending_action")
+    if not pending:
+        return
+
+    st.markdown("### Model proposal")
+    st.json(pending)
+
+    warnings = action_validation_warnings(
+        pending,
+        matter,
+        st.session_state.get(f"{prefix}_pending_action_request", action_request),
+    )
+    if warnings:
+        st.markdown("### Validation warnings")
+        for warning in warnings:
+            st.warning(warning)
+    else:
+        st.success("No validation warnings on the model proposal.")
+
+    sources = st.session_state.get(f"{prefix}_pending_sources", [])
+    if sources:
+        render_sources(sources)
+
+    st.markdown("### Edit before approval")
+    st.caption("The audit log stores both the original model proposal and the approved action when edited.")
+
+    with st.form(f"{prefix}_approve_action_form"):
+        st.text_input("Action type", value=pending.get("action_type", ""), disabled=True)
+        st.text_input("Matter ID", value=matter["matter_id"], disabled=True)
+
+        if pending.get("action_type") == "create_task":
+            st.text_input("Task title", key=f"{prefix}_edit_title")
+            assignee_options = [matter["paralegal"], matter["lead_attorney"], "Mini LOIS"]
+            current_assignee = st.session_state.get(f"{prefix}_edit_assigned_to") or matter["paralegal"]
+            if current_assignee not in assignee_options:
+                assignee_options.insert(0, current_assignee)
+            st.selectbox(
+                "Assigned to",
+                assignee_options,
+                index=assignee_options.index(current_assignee),
+                key=f"{prefix}_edit_assigned_to",
+            )
+            st.text_input("Due date (YYYY-MM-DD or blank)", key=f"{prefix}_edit_due_date")
+            st.text_area("Reason", key=f"{prefix}_edit_reason", height=90)
+
+        elif pending.get("action_type") == "add_note":
+            st.text_area("Note text", key=f"{prefix}_edit_note_text", height=120)
+            st.text_input("Author", key=f"{prefix}_edit_author")
+            st.text_area("Reason", key=f"{prefix}_edit_reason", height=90)
+
+        elif pending.get("action_type") == "create_calendar_event":
+            st.text_input("Event title", key=f"{prefix}_edit_title")
+            st.text_input("Event date (YYYY-MM-DD)", key=f"{prefix}_edit_event_date")
+            owner_options = [matter["paralegal"], matter["lead_attorney"], "Mini LOIS"]
+            current_owner = st.session_state.get(f"{prefix}_edit_owner") or matter["paralegal"]
+            if current_owner not in owner_options:
+                owner_options.insert(0, current_owner)
+            st.selectbox(
+                "Owner",
+                owner_options,
+                index=owner_options.index(current_owner),
+                key=f"{prefix}_edit_owner",
+            )
+            st.text_area("Reason", key=f"{prefix}_edit_reason", height=90)
+
+        submitted = st.form_submit_button("Approve edited action and execute", type="primary")
+
+    if st.button("Discard proposal", key=f"{prefix}_discard"):
+        clear_pending_action(prefix)
+        st.rerun()
+
+    if submitted:
+        try:
+            edited_action = build_edited_action_from_form(pending, matter, prefix)
+            post_edit_warnings = action_validation_warnings(
+                edited_action,
+                matter,
+                st.session_state.get(f"{prefix}_pending_action_request", action_request),
+            )
+            if any("missing" in warning.lower() or "must use" in warning.lower() for warning in post_edit_warnings):
+                for warning in post_edit_warnings:
+                    st.error(warning)
+                st.stop()
+
+            result = execute_action(
+                edited_action,
+                st.session_state.get(f"{prefix}_pending_source_refs", []),
+                original_action=pending,
+            )
+            st.success(result)
+            clear_pending_action(prefix)
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Execution failed: {exc}")
 
 
 st.title("Mini LOIS: CaseOps AI")
@@ -158,7 +271,7 @@ with st.sidebar:
     selected_matter_id = selected_label.split(" · ")[0]
     matter = get_matter(selected_matter_id)
     st.info("Run `python ingest.py` before asking questions so Chroma has indexed the fake matter docs.")
-    st.caption("v0.2 adds editable action approval and validation warnings.")
+    st.caption("v0.3 adds create-task-from-answer flow.")
 
 if matter is None:
     st.error("Selected matter not found.")
@@ -184,14 +297,35 @@ with ask_tab:
     if st.button("Ask Mini LOIS", type="primary"):
         try:
             answer, sources = answer_question(question=question, matter=matter, model=model)
-            st.markdown("### Answer")
-            st.write(answer)
-            st.markdown("### Retrieved sources")
-            for source in sources:
-                with st.expander(f"{source['source_id']} · {source['source_file']} · chunk {source['chunk_index']}"):
-                    st.write(source["text"])
+            st.session_state["last_answer"] = answer
+            st.session_state["last_answer_sources"] = sources
+            st.session_state["last_question"] = question
         except Exception as exc:
             st.error(f"Question failed: {exc}")
+
+    if st.session_state.get("last_answer"):
+        st.markdown("### Answer")
+        st.write(st.session_state["last_answer"])
+        render_sources(st.session_state.get("last_answer_sources", []), heading="### Retrieved sources")
+
+        st.markdown("### Turn an answer item into a task")
+        st.caption("Copy or rewrite one recommendation from the answer. Mini LOIS will draft an editable task proposal from it.")
+        task_from_answer = st.text_area(
+            "Task request from answer",
+            value="Create a task from this recommendation: ",
+            height=90,
+            key="ask_task_from_answer_request",
+        )
+        if st.button("Draft task from answer", key="ask_draft_task_from_answer"):
+            try:
+                request = f"Create a task for this matter based on the answer recommendation. {task_from_answer}"
+                action, sources = propose_action(request=request, matter=matter, model=model)
+                action["action_type"] = "create_task"
+                store_pending_action("ask", action, sources, request, matter)
+            except Exception as exc:
+                st.error(f"Task drafting failed: {exc}")
+
+        render_pending_action_editor("ask", matter, st.session_state.get("ask_task_from_answer_request", ""))
 
 with action_tab:
     st.markdown(
@@ -206,116 +340,11 @@ with action_tab:
     if st.button("Generate action proposal"):
         try:
             action, sources = propose_action(request=action_request, matter=matter, model=model)
-            st.session_state["pending_action"] = action
-            st.session_state["pending_source_refs"] = [s["source_id"] for s in sources]
-            st.session_state["pending_sources"] = sources
-            st.session_state["pending_action_request"] = action_request
-
-            st.session_state["edit_title"] = action.get("title", "")
-            st.session_state["edit_assigned_to"] = action.get("assigned_to") or matter["paralegal"]
-            st.session_state["edit_due_date"] = "" if action.get("due_date") is None else str(action.get("due_date"))
-            st.session_state["edit_reason"] = action.get("reason", "")
-            st.session_state["edit_note_text"] = action.get("note_text", "")
-            st.session_state["edit_author"] = action.get("author", "Mini LOIS")
-            st.session_state["edit_event_date"] = "" if action.get("event_date") is None else str(action.get("event_date"))
-            st.session_state["edit_owner"] = action.get("owner") or matter["paralegal"]
+            store_pending_action("action", action, sources, action_request, matter)
         except Exception as exc:
             st.error(f"Action planning failed: {exc}")
 
-    pending = st.session_state.get("pending_action")
-    if pending:
-        st.markdown("### Model proposal")
-        st.json(pending)
-
-        warnings = action_validation_warnings(
-            pending,
-            matter,
-            st.session_state.get("pending_action_request", action_request),
-        )
-        if warnings:
-            st.markdown("### Validation warnings")
-            for warning in warnings:
-                st.warning(warning)
-        else:
-            st.success("No validation warnings on the model proposal.")
-
-        sources = st.session_state.get("pending_sources", [])
-        if sources:
-            render_sources(sources)
-
-        st.markdown("### Edit before approval")
-        st.caption("The audit log stores both the original model proposal and the approved action when edited.")
-
-        with st.form("approve_action_form"):
-            st.text_input("Action type", value=pending.get("action_type", ""), disabled=True)
-            st.text_input("Matter ID", value=matter["matter_id"], disabled=True)
-
-            if pending.get("action_type") == "create_task":
-                st.text_input("Task title", key="edit_title")
-                assignee_options = [matter["paralegal"], matter["lead_attorney"], "Mini LOIS"]
-                current_assignee = st.session_state.get("edit_assigned_to") or matter["paralegal"]
-                if current_assignee not in assignee_options:
-                    assignee_options.insert(0, current_assignee)
-                st.selectbox(
-                    "Assigned to",
-                    assignee_options,
-                    index=assignee_options.index(current_assignee),
-                    key="edit_assigned_to",
-                )
-                st.text_input("Due date (YYYY-MM-DD or blank)", key="edit_due_date")
-                st.text_area("Reason", key="edit_reason", height=90)
-
-            elif pending.get("action_type") == "add_note":
-                st.text_area("Note text", key="edit_note_text", height=120)
-                st.text_input("Author", key="edit_author")
-                st.text_area("Reason", key="edit_reason", height=90)
-
-            elif pending.get("action_type") == "create_calendar_event":
-                st.text_input("Event title", key="edit_title")
-                st.text_input("Event date (YYYY-MM-DD)", key="edit_event_date")
-                owner_options = [matter["paralegal"], matter["lead_attorney"], "Mini LOIS"]
-                current_owner = st.session_state.get("edit_owner") or matter["paralegal"]
-                if current_owner not in owner_options:
-                    owner_options.insert(0, current_owner)
-                st.selectbox(
-                    "Owner",
-                    owner_options,
-                    index=owner_options.index(current_owner),
-                    key="edit_owner",
-                )
-                st.text_area("Reason", key="edit_reason", height=90)
-
-            submitted = st.form_submit_button("Approve edited action and execute", type="primary")
-
-        col_a, col_b = st.columns([1, 4])
-        with col_a:
-            if st.button("Discard proposal"):
-                clear_pending_action()
-                st.rerun()
-
-        if submitted:
-            try:
-                edited_action = build_edited_action_from_form(pending, matter)
-                post_edit_warnings = action_validation_warnings(
-                    edited_action,
-                    matter,
-                    st.session_state.get("pending_action_request", action_request),
-                )
-                if any("missing" in warning.lower() or "must use" in warning.lower() for warning in post_edit_warnings):
-                    for warning in post_edit_warnings:
-                        st.error(warning)
-                    st.stop()
-
-                result = execute_action(
-                    edited_action,
-                    st.session_state.get("pending_source_refs", []),
-                    original_action=pending,
-                )
-                st.success(result)
-                clear_pending_action()
-                st.rerun()
-            except Exception as exc:
-                st.error(f"Execution failed: {exc}")
+    render_pending_action_editor("action", matter, action_request)
 
 with record_tab:
     st.markdown("### Tasks")
