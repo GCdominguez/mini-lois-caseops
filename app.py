@@ -91,6 +91,8 @@ def render_sources(sources: list[dict[str, Any]], heading: str = "### Evidence u
 
 def _clean_candidate(candidate: str) -> str:
     candidate = re.sub(r"^\*\*(.*?)\**$", r"\1", candidate).strip()
+    candidate = re.split(r"\s+to\s+", candidate, maxsplit=1)[0]
+    candidate = re.sub(r"^(get our hands on|get|the)\s+", "", candidate, flags=re.IGNORECASE)
     candidate = candidate.strip(" -•\t")
     candidate = candidate.rstrip(".")
     return candidate
@@ -98,11 +100,14 @@ def _clean_candidate(candidate: str) -> str:
 
 def _add_candidate(candidates: list[str], candidate: str) -> None:
     candidate = _clean_candidate(candidate)
+    lower = candidate.lower()
     if len(candidate) < 8:
         return
     if len(candidate) > 180:
         return
-    if candidate.lower().startswith(("however", "unfortunately", "without more information")):
+    if lower.startswith(("however", "unfortunately", "without more information")):
+        return
+    if lower in {"those missing documents", "missing documents", "requesting those missing documents"}:
         return
     if candidate not in candidates:
         candidates.append(candidate)
@@ -110,7 +115,7 @@ def _add_candidate(candidates: list[str], candidate: str) -> None:
 
 def _split_inline_task_candidates(fragment: str) -> list[str]:
     fragment = fragment.strip().rstrip(".")
-    fragment = re.sub(r"^[:\s]+", "", fragment)
+    fragment = re.sub(r"^[:\s,]+", "", fragment)
     fragment = re.split(r"\.\s+", fragment, maxsplit=1)[0]
     fragment = fragment.replace(";", ",")
     fragment = re.sub(r",\s+and\s+", ", ", fragment)
@@ -122,12 +127,15 @@ def _extract_inline_next_steps(line: str) -> list[str]:
     lower = line.lower()
     markers = (
         "next steps discussed were",
+        "next steps discussed include",
+        "next steps to take, including",
+        "next steps include",
         "next steps were",
         "next steps are",
-        "next steps include",
-        "next steps discussed include",
         "we still need to",
+        "we also need to",
         "we need to",
+        "need to get",
     )
     for marker in markers:
         marker_index = lower.find(marker)
@@ -135,6 +143,29 @@ def _extract_inline_next_steps(line: str) -> list[str]:
             fragment = line[marker_index + len(marker) :]
             return _split_inline_task_candidates(fragment)
     return []
+
+
+def _add_keyword_gap_candidates(answer: str, candidates: list[str]) -> None:
+    lower = answer.lower()
+    missing_signals = ("missing", "not received", "hasn't been received", "has not been received", "not available", "incomplete", "need to")
+
+    if "police report" in lower and any(signal in lower for signal in missing_signals):
+        _add_candidate(candidates, "police report has not been received")
+
+    if "urgent care records" in lower or "urgent care record" in lower:
+        if any(signal in lower for signal in missing_signals):
+            _add_candidate(candidates, "urgent care records")
+
+    if "physical therapy notes" in lower or "physical therapy records" in lower or "pt records" in lower:
+        if any(signal in lower for signal in missing_signals):
+            _add_candidate(candidates, "physical therapy records")
+
+    if "billing ledger" in lower and "urgent care" in lower:
+        if any(signal in lower for signal in missing_signals):
+            _add_candidate(candidates, "urgent care billing ledger")
+
+    if "available witness" in lower and ("contact" in lower or "witness" in lower):
+        _add_candidate(candidates, "contacting the available witness")
 
 
 def extract_task_candidates(answer: str) -> list[str]:
@@ -165,6 +196,7 @@ def extract_task_candidates(answer: str) -> list[str]:
         candidate = bullet_match.group(1) if bullet_match else line
         _add_candidate(candidates, candidate)
 
+    _add_keyword_gap_candidates(answer, candidates)
     return candidates[:8]
 
 
@@ -543,7 +575,7 @@ with st.sidebar:
     selected_matter_id = selected_label.split(" · ")[0]
     matter = get_matter(selected_matter_id)
     st.info("Run `python ingest.py` before asking questions so Chroma has indexed the fake matter docs.")
-    st.caption("v0.4.3 detects inline next-step task lists.")
+    st.caption("v0.4.4 adds fallback detection for matter gap tasks.")
 
 if matter is None:
     st.error("Selected matter not found.")
