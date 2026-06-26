@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675" role="img" aria-label="Matter record write-back preview">
+  <rect width="1200" height="675" fill="#f6f8fa"/>
+  <rect x="35" y="35" width="1130" height="605" rx="24" fill="#ffffff" stroke="#d0d7de"/>
+  <text x="90" y="105" font-family="Arial" font-size="40" font-weight="700" fill="#24292f">Matter Record Write-back</text>
+  <text x="90" y="145" font-family="Arial" font-size="18" fill="#57606a">Approved actions are written to the local SQLite matter record.</text>
+  <g font-family="Arial" font-size="18" fill="#57606a">
+    <text x="90" y="215">Ask Matter</text><text x="220" y="215">Propose Action</text><text x="385" y="215" font-weight="700" fill="#cf222e">Matter Record</text><text x="545" y="215">Audit Log</text>
+  </g>
+  <line x1="90" y1="235" x2="1080" y2="235" stroke="#d0d7de"/>
+  <text x="90" y="285" font-family="Arial" font-size="30" font-weight="700" fill="#24292f">Tasks</text>
+  <rect x="90" y="315" width="990" height="170" rx="10" fill="#ffffff" stroke="#d0d7de"/>
+  <rect x="90" y="315" width="990" height="42" rx="10" fill="#f6f8fa"/>
+  <g font-family="Arial" font-size="15" fill="#57606a" font-weight="700">
+    <text x="115" y="342">id</text><text x="165" y="342">matter_id</text><text x="285" y="342">Title</text><text x="665" y="342">assigned_to</text><text x="790" y="342">due_date</text><text x="910" y="342">status</text>
+  </g>
+  <line x1="90" y1="357" x2="1080" y2="357" stroke="#d0d7de"/>
+  <g font-family="Arial" font-size="15" fill="#24292f">
+    <text x="115" y="392">2</text><text x="165" y="392">MAT-1001</text><text x="285" y="392">Request missing PT records and urgent care billing ledger</text><text x="665" y="392">Miguel Santos</text><text x="790" y="392">None</text><text x="910" y="392">Open</text>
+    <text x="115" y="442">1</text><text x="165" y="442">MAT-1001</text><text x="285" y="442">Request Missing Urgent Care Records and PT Attendance</text><text x="665" y="442">Miguel Santos</text><text x="790" y="442">None</text><text x="910" y="442">Open</text>
+  </g>
+  <text x="90" y="545" font-family="Arial" font-size="30" font-weight="700" fill="#24292f">Notes</text>
+  <rect x="90" y="570" width="990" height="48" rx="10" fill="#f6f8fa" stroke="#d0d7de"/>
+  <text x="115" y="600" font-family="Arial" font-size="15" fill="#8c959f">empty</text>
+</svg>
