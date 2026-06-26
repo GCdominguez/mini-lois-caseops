@@ -127,9 +127,32 @@ def extract_task_candidates(answer: str) -> list[str]:
     return candidates[:8]
 
 
-def candidate_to_task(candidate: str, matter: dict[str, Any]) -> dict[str, Any]:
+def task_title_from_candidate(candidate: str) -> str:
+    """Turn a verbose answer bullet into a concise operational task title."""
     base = candidate.strip().rstrip(".")
     lower = base.lower()
+
+    if "police report" in lower:
+        return "Request police report"
+    if "physical therapy" in lower or "pt records" in lower or "pt record" in lower:
+        if "after april 19" in lower:
+            return "Request PT records after April 19"
+        return "Request PT records"
+    if "billing ledger" in lower and "urgent care" in lower:
+        return "Request urgent care billing ledger"
+    if "insurance policy" in lower or "coverage details" in lower:
+        return "Request insurance policy or coverage details"
+    if "internal communication" in lower or "email chain" in lower:
+        return "Request driver-company accident communications"
+    if "accident report form" in lower or "incident report" in lower:
+        return "Request accident or incident report template"
+    if "safety protocol" in lower or "handling accidents" in lower:
+        return "Request safety protocols for accident handling"
+    if "regulatory" in lower and "document" in lower:
+        return "Review regulatory compliance documents"
+    if "company policies" in lower or "company policy" in lower:
+        return "Review company accident and injury policies"
+
     verbs = (
         "review",
         "request",
@@ -142,7 +165,23 @@ def candidate_to_task(candidate: str, matter: dict[str, Any]) -> dict[str, Any]:
         "draft",
         "collect",
     )
-    title = base if lower.startswith(verbs) else f"Review {base[:1].lower()}{base[1:]}"
+    if lower.startswith(verbs):
+        return base
+
+    request_signals = ("not received", "not been received", "not available", "not been obtained", "missing", "need ")
+    if any(signal in lower for signal in request_signals):
+        cleaned = re.sub(r"\b(has|have) not been (received|obtained)\b", "", base, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\b(is|are) not available\b", "", cleaned, flags=re.IGNORECASE)
+        cleaned = cleaned.strip(" .")
+        return f"Request {cleaned[:1].lower()}{cleaned[1:]}" if cleaned else f"Request {base}"
+
+    cleaned = re.sub(r"^(a copy of|any relevant|any available)\s+", "", base, flags=re.IGNORECASE)
+    return f"Review {cleaned[:1].lower()}{cleaned[1:]}"
+
+
+def candidate_to_task(candidate: str, matter: dict[str, Any]) -> dict[str, Any]:
+    base = candidate.strip().rstrip(".")
+    title = task_title_from_candidate(base)
 
     return {
         "action_type": "create_task",
@@ -354,19 +393,21 @@ def render_candidate_task_picker(answer: str, matter: dict[str, Any]) -> None:
         st.caption("No discrete recommendations detected.")
         return
 
-    st.caption("Draft tasks directly from answer bullets. Approval still happens before write-back.")
+    st.caption(f"{len(candidates)} task candidate{'s' if len(candidates) != 1 else ''} found")
     source_refs = [s["source_id"] for s in st.session_state.get("last_answer_sources", [])]
 
-    if st.button("Draft all", type="primary", key="draft_all_inline_tasks"):
+    if st.button("Draft all tasks", type="primary", key="draft_all_inline_tasks"):
         set_answer_task_batch([candidate_to_task(candidate, matter) for candidate in candidates], source_refs)
         st.rerun()
 
     for index, candidate in enumerate(candidates):
-        short_label = candidate if len(candidate) <= 58 else candidate[:55] + "..."
-        st.caption(short_label)
-        if st.button("Create task", key=f"candidate_task_{index}"):
-            set_answer_task_batch([candidate_to_task(candidate, matter)], source_refs)
-            st.rerun()
+        action = candidate_to_task(candidate, matter)
+        with st.container(border=True):
+            st.markdown(f"**{action['title']}**")
+            st.caption(candidate)
+            if st.button("Create task", key=f"candidate_task_{index}"):
+                set_answer_task_batch([action], source_refs)
+                st.rerun()
 
 
 def render_batch_task_editor(matter: dict[str, Any]) -> None:
@@ -445,7 +486,7 @@ with st.sidebar:
     selected_matter_id = selected_label.split(" · ")[0]
     matter = get_matter(selected_matter_id)
     st.info("Run `python ingest.py` before asking questions so Chroma has indexed the fake matter docs.")
-    st.caption("v0.4.1 shows task buttons beside the answer.")
+    st.caption("v0.4.2 improves quick task action cards and titles.")
 
 if matter is None:
     st.error("Selected matter not found.")
