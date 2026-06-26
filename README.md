@@ -8,6 +8,12 @@ This is a portfolio project, not legal software and not legal advice. It is not 
 
 v0.2 adds editable action approval, validation warnings, cleaner matter metadata display, and audit records that can store both the original model proposal and the final approved action.
 
+## Screenshots
+
+The v0.2 demo flow is documented in [`docs/screenshots`](docs/screenshots/README.md).
+
+![Mini LOIS v0.2 home](docs/screenshots/01-v02-home.svg)
+
 ## What it demonstrates
 
 - Matter-scoped retrieval so the assistant only searches inside the selected matter.
