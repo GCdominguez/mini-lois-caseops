@@ -1,8 +1,12 @@
 # Mini LOIS: CaseOps AI
 
-Mini LOIS is a small local prototype of an agentic legal operations assistant. It demonstrates the product concepts behind an AI assistant that can read matter files, answer with citations, propose workflow actions, write approved actions back to a mock matter system, and keep an audit trail.
+Mini LOIS is a small local prototype of an agentic legal operations assistant. It demonstrates the product concepts behind an AI assistant that can read matter files, answer with citations, propose workflow actions, let a user edit/approve those actions, write approved actions back to a mock matter system, and keep an audit trail.
 
 This is a portfolio project, not legal software and not legal advice. It is not affiliated with Filevine.
+
+## Current version
+
+v0.2 adds editable action approval, validation warnings, cleaner matter metadata display, and audit records that can store both the original model proposal and the final approved action.
 
 ## What it demonstrates
 
@@ -10,9 +14,10 @@ This is a portfolio project, not legal software and not legal advice. It is not 
 - Local RAG using Ollama embeddings and Chroma.
 - Source-cited answers based on fake matter documents.
 - Structured action proposals for tasks, notes, and calendar events.
-- Approval gate before any write-back.
+- Editable action approval before write-back.
+- Validation warnings for risky operational fields such as unsupported due dates or non-matter assignees.
 - SQLite-backed mock matter record.
-- Audit log of executed AI-assisted actions.
+- Audit log of executed AI-assisted actions, including human-edited approvals.
 
 ## Architecture
 
@@ -27,9 +32,10 @@ flowchart LR
     G --> H[Ollama Chat Model]
     H --> I[Answer with Citations]
     H --> J[JSON Action Proposal]
-    J --> K[Human Approval Gate]
-    K --> L[SQLite Matter Store]
-    L --> M[Audit Log]
+    J --> K[Validation Warnings]
+    K --> L[Editable Approval Form]
+    L --> M[SQLite Matter Store]
+    M --> N[Audit Log]
 ```
 
 ## Tech stack
@@ -52,7 +58,7 @@ ollama pull nomic-embed-text
 Create and activate a virtual environment.
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -68,7 +74,7 @@ pip install -r requirements.txt
 Ingest the fake matter documents into Chroma.
 
 ```bash
-python ingest.py
+python3 ingest.py
 ```
 
 Run the app.
@@ -83,19 +89,21 @@ streamlit run app.py
 2. Ask: `What are the key risks and next steps in this matter?`
 3. Confirm the answer cites retrieved sources.
 4. Go to `Propose Action`.
-5. Ask: `Create a task for the paralegal based on the most important missing item.`
-6. Review the JSON action proposal.
-7. Approve execution.
-8. Check `Matter Record` and `Audit Log`.
+5. Ask: `Create a task for Miguel Santos to request only the missing PT records after April 19 and the urgent care billing ledger. Do not set a due date unless the matter file gives a task deadline.`
+6. Review the model proposal and validation warnings.
+7. Edit the title, due date, assignee, or reason if needed.
+8. Approve the edited action.
+9. Check `Matter Record` and `Audit Log`.
 
 ## Product notes
 
-The important design choice is the approval gate. The assistant can propose actions, but it cannot silently mutate matter data. This mirrors the product problem in legal AI: reliability, source grounding, permissions, and auditability matter as much as the generated text.
+The important design choice is the approval workflow. The assistant can propose actions, but it cannot silently mutate matter data. v0.2 improves this by letting the user edit the proposed fields before execution. This mirrors the product problem in legal AI: generated actions need user control, source grounding, validation, and auditability.
 
 Potential next features:
 
+- Stronger validation with Pydantic schemas.
+- Field-level source citations for action proposals.
 - User roles and permission filters.
-- Better action schema validation with Pydantic.
 - Workflow triggers such as `new_document_uploaded` or `matter_phase_changed`.
 - Simulated webhook payloads.
 - Regression tests for retrieval quality.
