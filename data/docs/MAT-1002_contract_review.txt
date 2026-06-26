@@ -1,0 +1,22 @@
+Matter: Acme Supply Contract Review
+Client: Acme Supply LLC
+Type: Commercial Contract
+
+Client request:
+Review vendor master services agreement before renewal. Client wants to reduce operational risk and avoid automatic renewal surprises.
+
+Important clauses:
+Section 4.2 allows the vendor to increase fees by up to 12% annually with 30 days notice. Section 6.1 limits vendor liability to fees paid in the prior three months. Section 8.3 includes automatic renewal for one-year terms unless either party gives written notice 60 days before the renewal date.
+
+Client concerns:
+Acme is uncomfortable with the liability cap and wants a cure period for service failures. They also want a clear data return/deletion obligation at termination.
+
+Recommended redlines:
+- Cap annual fee increases at 5% or CPI, whichever is lower.
+- Increase liability cap to 12 months of fees for general claims.
+- Exclude confidentiality, data security, and indemnity from the liability cap.
+- Add 30-day cure period for repeated service-level failures.
+- Add termination assistance and data export language.
+
+Deadline:
+Client wants comments by June 30, 2026.
