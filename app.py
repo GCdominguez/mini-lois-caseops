@@ -89,6 +89,54 @@ def render_sources(sources: list[dict[str, Any]], heading: str = "### Evidence u
             st.write(source["text"])
 
 
+def _clean_candidate(candidate: str) -> str:
+    candidate = re.sub(r"^\*\*(.*?)\**$", r"\1", candidate).strip()
+    candidate = candidate.strip(" -•\t")
+    candidate = candidate.rstrip(".")
+    return candidate
+
+
+def _add_candidate(candidates: list[str], candidate: str) -> None:
+    candidate = _clean_candidate(candidate)
+    if len(candidate) < 8:
+        return
+    if len(candidate) > 180:
+        return
+    if candidate.lower().startswith(("however", "unfortunately", "without more information")):
+        return
+    if candidate not in candidates:
+        candidates.append(candidate)
+
+
+def _split_inline_task_candidates(fragment: str) -> list[str]:
+    fragment = fragment.strip().rstrip(".")
+    fragment = re.sub(r"^[:\s]+", "", fragment)
+    fragment = re.split(r"\.\s+", fragment, maxsplit=1)[0]
+    fragment = fragment.replace(";", ",")
+    fragment = re.sub(r",\s+and\s+", ", ", fragment)
+    fragment = re.sub(r"\s+and\s+", ", ", fragment)
+    return [_clean_candidate(part) for part in fragment.split(",") if _clean_candidate(part)]
+
+
+def _extract_inline_next_steps(line: str) -> list[str]:
+    lower = line.lower()
+    markers = (
+        "next steps discussed were",
+        "next steps were",
+        "next steps are",
+        "next steps include",
+        "next steps discussed include",
+        "we still need to",
+        "we need to",
+    )
+    for marker in markers:
+        marker_index = lower.find(marker)
+        if marker_index != -1:
+            fragment = line[marker_index + len(marker) :]
+            return _split_inline_task_candidates(fragment)
+    return []
+
+
 def extract_task_candidates(answer: str) -> list[str]:
     """Extract short actionable recommendations from a Mini LOIS answer."""
     candidates: list[str] = []
@@ -101,6 +149,10 @@ def extract_task_candidates(answer: str) -> list[str]:
             continue
 
         lower = line.lower()
+        inline_candidates = _extract_inline_next_steps(line)
+        for candidate in inline_candidates:
+            _add_candidate(candidates, candidate)
+
         if lower.endswith("such as:") or lower.endswith("including:") or lower.endswith("for example:"):
             capture_following_lines = True
             continue
@@ -111,18 +163,7 @@ def extract_task_candidates(answer: str) -> list[str]:
             continue
 
         candidate = bullet_match.group(1) if bullet_match else line
-        candidate = re.sub(r"^\*\*(.*?)\**$", r"\1", candidate).strip()
-        candidate = candidate.strip(" -•\t")
-        candidate = candidate.rstrip(".")
-
-        if len(candidate) < 8:
-            continue
-        if len(candidate) > 180:
-            continue
-        if candidate.lower().startswith(("however", "unfortunately", "without more information")):
-            continue
-        if candidate not in candidates:
-            candidates.append(candidate)
+        _add_candidate(candidates, candidate)
 
     return candidates[:8]
 
@@ -134,12 +175,16 @@ def task_title_from_candidate(candidate: str) -> str:
 
     if "police report" in lower:
         return "Request police report"
+    if "urgent care records" in lower or "urgent care record" in lower:
+        return "Request urgent care records"
     if "physical therapy" in lower or "pt records" in lower or "pt record" in lower:
         if "after april 19" in lower:
             return "Request PT records after April 19"
         return "Request PT records"
     if "billing ledger" in lower and "urgent care" in lower:
         return "Request urgent care billing ledger"
+    if "witness" in lower:
+        return "Contact available witness"
     if "insurance policy" in lower or "coverage details" in lower:
         return "Request insurance policy or coverage details"
     if "internal communication" in lower or "email chain" in lower:
@@ -152,6 +197,18 @@ def task_title_from_candidate(candidate: str) -> str:
         return "Review regulatory compliance documents"
     if "company policies" in lower or "company policy" in lower:
         return "Review company accident and injury policies"
+
+    gerund_prefixes = {
+        "requesting ": "Request ",
+        "obtaining ": "Obtain ",
+        "contacting ": "Contact ",
+        "reviewing ": "Review ",
+        "collecting ": "Collect ",
+        "following up on ": "Follow up on ",
+    }
+    for prefix, replacement in gerund_prefixes.items():
+        if lower.startswith(prefix):
+            return replacement + base[len(prefix) :]
 
     verbs = (
         "review",
@@ -486,7 +543,7 @@ with st.sidebar:
     selected_matter_id = selected_label.split(" · ")[0]
     matter = get_matter(selected_matter_id)
     st.info("Run `python ingest.py` before asking questions so Chroma has indexed the fake matter docs.")
-    st.caption("v0.4.2 improves quick task action cards and titles.")
+    st.caption("v0.4.3 detects inline next-step task lists.")
 
 if matter is None:
     st.error("Selected matter not found.")
