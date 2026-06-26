@@ -4,9 +4,9 @@ These screenshots document the Mini LOIS demo flow.
 
 ## Matter summary with no actionable recommendations
 
-This cropped screenshot shows Mini LOIS summarizing a matter in plain language while the action panel correctly detects that the answer does not contain discrete task recommendations.
+This preview shows Mini LOIS summarizing a matter in plain language while the action panel correctly detects that the answer does not contain discrete task recommendations.
 
-![Matter summary with no actionable recommendations](./04-matter-summary-no-actions.png)
+![Matter summary with no actionable recommendations](./04-matter-summary-no-actions.svg)
 
 ## v0.2 home / matter-scoped RAG
 
