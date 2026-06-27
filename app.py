@@ -19,7 +19,7 @@ from matter_store import (
     init_database,
 )
 from rag import DEFAULT_LLM_MODEL, answer_question
-from task_extractor import extract_task_candidates, task_title_from_candidate
+from task_extractor import build_task_candidate_objects
 
 st.set_page_config(page_title="Mini LOIS: CaseOps AI", page_icon="⚖️", layout="wide")
 init_database()
@@ -39,18 +39,14 @@ def parse_optional_date(value: Any) -> str | None:
     return value
 
 
-def task_title(candidate: str) -> str:
-    return task_title_from_candidate(candidate)
-
-
-def candidate_to_task(candidate: str, matter: dict[str, Any]) -> dict[str, Any]:
+def candidate_object_to_task(candidate: dict[str, Any], matter: dict[str, Any]) -> dict[str, Any]:
     return {
-        "action_type": "create_task",
+        "action_type": candidate.get("action_type", "create_task"),
         "matter_id": matter["matter_id"],
-        "title": task_title(candidate),
+        "title": candidate.get("title", "").strip(),
         "assigned_to": matter["paralegal"],
         "due_date": None,
-        "reason": f"Created from Mini LOIS answer recommendation: {candidate.strip().rstrip('.')}",
+        "reason": candidate.get("reason") or f"Created from Mini LOIS answer recommendation: {candidate.get('original_text', '')}",
     }
 
 
@@ -101,8 +97,8 @@ def render_sources(sources: list[dict[str, Any]]) -> None:
             st.write(source["text"])
 
 
-def render_quick_actions(answer: str, matter: dict[str, Any], model: str) -> None:
-    candidates = extract_task_candidates(answer, model=model)
+def render_quick_actions(answer: str, matter: dict[str, Any], sources: list[dict[str, Any]], model: str) -> None:
+    candidates = build_task_candidate_objects(answer, sources, model=model)
     st.markdown("#### Quick task actions")
     if not candidates:
         st.caption("No discrete recommendations detected.")
@@ -110,14 +106,18 @@ def render_quick_actions(answer: str, matter: dict[str, Any], model: str) -> Non
 
     st.caption(f"{len(candidates)} task candidate{'s' if len(candidates) != 1 else ''} found")
     if st.button("Draft all tasks", type="primary", key="draft_all_inline_tasks"):
-        set_batch([candidate_to_task(candidate, matter) for candidate in candidates], source_ids())
+        set_batch([candidate_object_to_task(candidate, matter) for candidate in candidates], source_ids())
         st.rerun()
 
     for index, candidate in enumerate(candidates):
-        action = candidate_to_task(candidate, matter)
+        action = candidate_object_to_task(candidate, matter)
         with st.container(border=True):
-            st.markdown(f"**{action['title']}**")
-            st.caption(candidate)
+            st.markdown(f"**{candidate['title']}**")
+            st.caption(candidate.get("reason", ""))
+            with st.expander("Details"):
+                st.write("Confidence:", candidate.get("confidence", "unknown"))
+                st.write("Original text:", candidate.get("original_text", ""))
+                st.write("Source refs:", candidate.get("source_refs", []))
             if st.button("Create task", key=f"candidate_task_{index}"):
                 set_batch([action], source_ids())
                 st.rerun()
@@ -202,7 +202,7 @@ def render_action_editor(action: dict[str, Any], sources: list[dict[str, Any]], 
 
 
 st.title("Mini LOIS: CaseOps AI")
-st.caption("Local prototype: matter-scoped RAG, source-cited answers, model-assisted task extraction, editable approval, write-back, and audit trail.")
+st.caption("Local prototype: matter-scoped RAG, source-cited answers, model-assisted structured task candidates, editable approval, write-back, and audit trail.")
 
 matters = get_matters()
 if not matters:
@@ -216,7 +216,7 @@ with st.sidebar:
     selected_matter_id = selected_label.split(" · ")[0]
     matter = get_matter(selected_matter_id)
     st.info("Run `python ingest.py` before asking questions so Chroma has indexed the fake matter docs.")
-    st.caption("v0.5.3 uses model-assisted quick task extraction with rule-based validation.")
+    st.caption("v0.5.4 uses the shared API-style task candidate contract in the UI.")
 
 if matter is None:
     st.error("Selected matter not found.")
@@ -251,7 +251,12 @@ with ask_tab:
             st.markdown("### Answer")
             st.write(st.session_state["last_answer"])
         with actions_col:
-            render_quick_actions(st.session_state["last_answer"], matter, model)
+            render_quick_actions(
+                st.session_state["last_answer"],
+                matter,
+                st.session_state.get("last_answer_sources", []),
+                model,
+            )
         render_batch_editor(matter)
         render_sources(st.session_state.get("last_answer_sources", []))
 
