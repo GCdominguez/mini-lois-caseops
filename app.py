@@ -39,6 +39,25 @@ def parse_optional_date(value: Any) -> str | None:
     return value
 
 
+def format_source_refs(refs: list[Any]) -> str:
+    clean_refs = [str(ref) for ref in refs if ref]
+    return ", ".join(clean_refs) if clean_refs else "No source refs attached"
+
+
+def format_confidence(value: Any) -> str:
+    if not value:
+        return "Unknown"
+    return str(value).strip().capitalize()
+
+
+def display_candidate_reason(candidate: dict[str, Any]) -> str:
+    reason = str(candidate.get("reason") or "").strip()
+    original_text = str(candidate.get("original_text") or "").strip()
+    if reason.startswith("Candidate extracted from matter answer:") and original_text:
+        return f"Suggested from the answer: {original_text}."
+    return reason or "Suggested from the answer."
+
+
 def candidate_object_to_task(candidate: dict[str, Any], matter: dict[str, Any]) -> dict[str, Any]:
     return {
         "action_type": candidate.get("action_type", "create_task"),
@@ -46,7 +65,7 @@ def candidate_object_to_task(candidate: dict[str, Any], matter: dict[str, Any]) 
         "title": candidate.get("title", "").strip(),
         "assigned_to": matter["paralegal"],
         "due_date": None,
-        "reason": candidate.get("reason") or f"Created from Mini LOIS answer recommendation: {candidate.get('original_text', '')}",
+        "reason": display_candidate_reason(candidate),
     }
 
 
@@ -111,13 +130,15 @@ def render_quick_actions(answer: str, matter: dict[str, Any], sources: list[dict
 
     for index, candidate in enumerate(candidates):
         action = candidate_object_to_task(candidate, matter)
+        reason = display_candidate_reason(candidate)
         with st.container(border=True):
             st.markdown(f"**{candidate['title']}**")
-            st.caption(candidate.get("reason", ""))
-            with st.expander("Details"):
-                st.write("Confidence:", candidate.get("confidence", "unknown"))
-                st.write("Original text:", candidate.get("original_text", ""))
-                st.write("Source refs:", candidate.get("source_refs", []))
+            st.caption(reason)
+            with st.expander("Why this task?"):
+                st.write("Reason:", reason)
+                st.write("Sources:", format_source_refs(candidate.get("source_refs", [])))
+                st.write("Confidence:", format_confidence(candidate.get("confidence")))
+                st.write("Original answer text:", candidate.get("original_text", ""))
             if st.button("Create task", key=f"candidate_task_{index}"):
                 set_batch([action], source_ids())
                 st.rerun()
@@ -216,7 +237,7 @@ with st.sidebar:
     selected_matter_id = selected_label.split(" · ")[0]
     matter = get_matter(selected_matter_id)
     st.info("Run `python ingest.py` before asking questions so Chroma has indexed the fake matter docs.")
-    st.caption("v0.5.4 uses the shared API-style task candidate contract in the UI.")
+    st.caption("v0.5.5 polishes quick task explanations and source display.")
 
 if matter is None:
     st.error("Selected matter not found.")
