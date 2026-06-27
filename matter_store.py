@@ -88,6 +88,20 @@ def init_database(seed_path: Path = DATA_PATH) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS webhook_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                matter_id TEXT NOT NULL,
+                resource_type TEXT NOT NULL,
+                resource_id TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                delivery_status TEXT NOT NULL DEFAULT 'queued',
+                created_at TEXT NOT NULL
+            )
+            """
+        )
 
         count = conn.execute("SELECT COUNT(*) AS c FROM matters").fetchone()["c"]
         if count == 0:
@@ -117,6 +131,15 @@ def init_database(seed_path: Path = DATA_PATH) -> None:
 def _rows(query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
     with _connect() as conn:
         return [dict(row) for row in conn.execute(query, params).fetchall()]
+
+
+def _json_loads_or_raw(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
 
 
 def get_matters() -> list[dict[str, Any]]:
@@ -149,12 +172,66 @@ def get_audit_log(matter_id: str | None = None, limit: int = 50) -> list[dict[st
     return _rows("SELECT * FROM audit_log ORDER BY id DESC LIMIT ?", (limit,))
 
 
+def get_webhook_events(matter_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    if matter_id:
+        rows = _rows(
+            "SELECT * FROM webhook_events WHERE matter_id = ? ORDER BY id DESC LIMIT ?",
+            (matter_id, limit),
+        )
+    else:
+        rows = _rows("SELECT * FROM webhook_events ORDER BY id DESC LIMIT ?", (limit,))
+
+    for row in rows:
+        row["payload"] = _json_loads_or_raw(row.get("payload"))
+    return rows
+
+
+def _record_webhook_event(
+    conn: sqlite3.Connection,
+    *,
+    event_type: str,
+    matter_id: str,
+    resource_type: str,
+    resource_id: str,
+    action: dict[str, Any],
+    source_refs: list[str] | None,
+    created_at: str,
+) -> int:
+    payload = {
+        "event_type": event_type,
+        "matter_id": matter_id,
+        "resource_type": resource_type,
+        "resource_id": resource_id,
+        "action": action,
+        "source_refs": source_refs or [],
+        "created_at": created_at,
+    }
+    cursor = conn.execute(
+        """
+        INSERT INTO webhook_events (
+            event_type, matter_id, resource_type, resource_id,
+            payload, delivery_status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            event_type,
+            matter_id,
+            resource_type,
+            resource_id,
+            json.dumps(payload, indent=2),
+            "queued",
+            created_at,
+        ),
+    )
+    return int(cursor.lastrowid)
+
+
 def execute_action(
     action: dict[str, Any],
     source_refs: list[str] | None = None,
     original_action: dict[str, Any] | None = None,
-) -> str:
-    """Execute an approved action and record the final payload in the audit log."""
+) -> dict[str, Any]:
+    """Execute an approved action and record audit + webhook-style events."""
     action_type = action.get("action_type")
     matter_id = action.get("matter_id")
     now = datetime.now(timezone.utc).isoformat()
@@ -164,7 +241,7 @@ def execute_action(
 
     with _connect() as conn:
         if action_type == "create_task":
-            conn.execute(
+            cursor = conn.execute(
                 """
                 INSERT INTO tasks (matter_id, title, assigned_to, due_date, created_at, reason)
                 VALUES (?, ?, ?, ?, ?, ?)
@@ -178,9 +255,12 @@ def execute_action(
                     action.get("reason"),
                 ),
             )
-            result = "Task created."
+            result_message = "Task created."
+            event_type = "task.created"
+            resource_type = "task"
+            resource_id = str(cursor.lastrowid)
         elif action_type == "add_note":
-            conn.execute(
+            cursor = conn.execute(
                 """
                 INSERT INTO notes (matter_id, note_text, author, created_at)
                 VALUES (?, ?, ?, ?)
@@ -192,9 +272,12 @@ def execute_action(
                     now,
                 ),
             )
-            result = "Note added."
+            result_message = "Note added."
+            event_type = "note.added"
+            resource_type = "note"
+            resource_id = str(cursor.lastrowid)
         elif action_type == "create_calendar_event":
-            conn.execute(
+            cursor = conn.execute(
                 """
                 INSERT INTO calendar_events (matter_id, title, event_date, owner, created_at, reason)
                 VALUES (?, ?, ?, ?, ?, ?)
@@ -208,7 +291,10 @@ def execute_action(
                     action.get("reason"),
                 ),
             )
-            result = "Calendar event created."
+            result_message = "Calendar event created."
+            event_type = "calendar_event.created"
+            resource_type = "calendar_event"
+            resource_id = str(cursor.lastrowid)
         else:
             raise ValueError(f"Unsupported action_type: {action_type}")
 
@@ -235,4 +321,21 @@ def execute_action(
                 now,
             ),
         )
-        return result
+        webhook_event_id = _record_webhook_event(
+            conn,
+            event_type=event_type,
+            matter_id=matter_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            action=action,
+            source_refs=source_refs,
+            created_at=now,
+        )
+
+    return {
+        "message": result_message,
+        "matter_id": matter_id,
+        "resource_type": resource_type,
+        "resource_id": resource_id,
+        "webhook_event_id": webhook_event_id,
+    }
