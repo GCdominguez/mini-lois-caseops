@@ -103,6 +103,19 @@ QUESTION_STARTERS = (
     "does the matter have ",
 )
 
+IRRELEVANT_ANSWER_SIGNALS = (
+    "no relevant information provided",
+    "no relevant information in the context",
+    "no information provided in the context",
+    "couldn't find any specific information",
+    "cannot find any specific information",
+    "question itself doesn't appear to be connected",
+    "doesn't appear to be connected",
+    "not connected to any of the provided information",
+    "not relevant to this matter",
+    "unrelated to this matter",
+)
+
 
 def clean_text(text: str) -> str:
     text = str(text or "").strip()
@@ -110,6 +123,11 @@ def clean_text(text: str) -> str:
     text = re.sub(r"\s*\[[Ss]\d+\]", "", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip(" -•\t").rstrip(".?")
+
+
+def answer_is_unrelated(answer: str) -> bool:
+    lower = clean_text(answer).lower()
+    return any(signal in lower for signal in IRRELEVANT_ANSWER_SIGNALS)
 
 
 def has_task_object(text: str) -> bool:
@@ -155,6 +173,9 @@ def add_candidate(candidates: List[str], text: str, *, section_context: bool = F
 
 
 def extract_rule_based_task_candidates(answer: str) -> List[str]:
+    if answer_is_unrelated(answer):
+        return []
+
     candidates: List[str] = []
     section_mode = False
     captured_bullet = False
@@ -213,7 +234,7 @@ def parse_json_array(raw_text: str) -> List[Any]:
 
 
 def extract_model_task_candidates(answer: str, model: Optional[str]) -> List[str]:
-    if not model:
+    if not model or answer_is_unrelated(answer):
         return []
 
     prompt = f"""
@@ -222,6 +243,7 @@ Return only valid JSON: an array of short task strings.
 
 Extract tasks for records/documents to request, policies to review, people/agencies to contact, statements to draft, timelines to build, or databases to search.
 If missing info is written as a question, convert it into a task. Example: "Is there an employee handbook?" -> "Request employee handbook".
+If the answer says the user's question is unrelated to the matter or no relevant context exists for the question, return [].
 Do not extract plain facts, completed items, symptoms, legal conclusions, or vague advice.
 
 Answer:
@@ -249,6 +271,9 @@ Answer:
 
 
 def extract_task_candidates(answer: str, model: Optional[str] = None) -> List[str]:
+    if answer_is_unrelated(answer):
+        return []
+
     candidates: List[str] = []
     for candidate in extract_model_task_candidates(answer, model):
         add_candidate(candidates, candidate, section_context=True)
@@ -333,6 +358,9 @@ def confidence_from_candidate(candidate: str) -> str:
 
 
 def build_task_candidate_objects(answer: str, sources: List[Dict[str, object]], model: Optional[str] = None) -> List[Dict[str, object]]:
+    if answer_is_unrelated(answer):
+        return []
+
     source_refs = [source.get("source_id") for source in sources if source.get("source_id")]
     structured: List[Dict[str, object]] = []
     seen_titles = set()
