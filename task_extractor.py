@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
+from typing import Dict, List
 
 CONCRETE_TERMS = (
     "record",
     "records",
     "report",
+    "reports",
     "ledger",
     "witness",
+    "witnesses",
     "policy",
     "policies",
     "coverage",
@@ -23,6 +25,20 @@ CONCRETE_TERMS = (
     "template",
     "claim",
     "claims",
+    "handbook",
+    "review",
+    "reviews",
+    "warning",
+    "warnings",
+    "payroll",
+    "paycheck",
+    "statement",
+    "outline",
+    "timeline",
+    "complaint",
+    "complaints",
+    "response",
+    "responses",
 )
 
 ACTION_TERMS = (
@@ -31,6 +47,8 @@ ACTION_TERMS = (
     "requested but",
     "obtain",
     "obtaining",
+    "acquire",
+    "acquiring",
     "contact",
     "contacting",
     "review",
@@ -39,6 +57,14 @@ ACTION_TERMS = (
     "collecting",
     "follow up",
     "following up",
+    "draft",
+    "drafting",
+    "build",
+    "building",
+    "prepare",
+    "preparing",
+    "create",
+    "creating",
 )
 
 PENDING_TERMS = (
@@ -47,6 +73,7 @@ PENDING_TERMS = (
     "not yet received",
     "hasn't been received",
     "has not been received",
+    "never received",
     "not available",
     "not obtained",
     "not been obtained",
@@ -78,15 +105,27 @@ NEXT_STEP_MARKERS = (
     "next steps include",
     "next steps were",
     "next steps are",
+    "actionable items include",
+    "actionable items are",
     "we still need to",
     "we also need to",
     "we need to",
     "need to get",
 )
 
+ACTION_LIST_HEADERS = (
+    "actionable items:",
+    "action items:",
+    "recommended actions:",
+    "next steps:",
+)
+
 
 def clean_candidate(candidate: str) -> str:
-    candidate = re.sub(r"^\*\*(.*?)\**$", r"\1", candidate).strip()
+    candidate = candidate.strip()
+    candidate = candidate.replace("**", "")
+    candidate = re.sub(r"\s*\[[Ss]\d+\]", "", candidate)
+    candidate = re.sub(r"\s+", " ", candidate)
     candidate = re.split(r"\s+to\s+", candidate, maxsplit=1)[0]
     candidate = re.sub(r"^(get our hands on|get|the)\s+", "", candidate, flags=re.IGNORECASE)
     return candidate.strip(" -•\t").rstrip(".")
@@ -110,7 +149,7 @@ def is_vague_candidate(candidate: str) -> bool:
 def add_candidate(candidates: List[str], candidate: str, *, allow_concrete_without_signal: bool = False) -> None:
     candidate = clean_candidate(candidate)
     lower = candidate.lower()
-    if len(candidate) < 8 or len(candidate) > 180:
+    if len(candidate) < 8 or len(candidate) > 220:
         return
     if lower.startswith(("however", "unfortunately", "without more information")):
         return
@@ -178,7 +217,7 @@ def extract_task_candidates(answer: str) -> List[str]:
         for candidate in extract_inline_next_steps(line):
             add_candidate(candidates, candidate, allow_concrete_without_signal=True)
 
-        if lower.endswith("such as:") or lower.endswith("including:") or lower.endswith("for example:"):
+        if lower.endswith(ACTION_LIST_HEADERS) or lower.endswith(("such as:", "including:", "for example:")):
             capture_following_lines = True
             continue
 
@@ -197,6 +236,21 @@ def task_title_from_candidate(candidate: str) -> str:
     text = clean_candidate(candidate)
     lower = text.lower()
 
+    if ":" in text:
+        before_colon = clean_candidate(text.split(":", 1)[0])
+        if has_action_signal(before_colon) and contains_concrete_task_object(before_colon):
+            return before_colon
+
+    if "employee handbook" in lower:
+        return "Request employee handbook"
+    if "performance reviews" in lower or "written warnings" in lower:
+        return "Obtain performance reviews and written warnings"
+    if "payroll" in lower or "paycheck" in lower:
+        return "Acquire payroll records"
+    if "coworker statement" in lower or "statement outline" in lower:
+        return "Draft coworker statement outline"
+    if "timeline" in lower and ("complaint" in lower or "supervisor" in lower):
+        return "Build timeline of complaints and supervisor responses"
     if "police report" in lower:
         return "Request police report"
     if "urgent care records" in lower or "urgent care record" in lower:
@@ -223,42 +277,48 @@ def task_title_from_candidate(candidate: str) -> str:
     gerunds = {
         "requesting ": "Request ",
         "obtaining ": "Obtain ",
+        "acquiring ": "Acquire ",
         "contacting ": "Contact ",
         "reviewing ": "Review ",
         "collecting ": "Collect ",
         "following up on ": "Follow up on ",
+        "drafting ": "Draft ",
+        "building ": "Build ",
+        "preparing ": "Prepare ",
+        "creating ": "Create ",
     }
     for prefix, replacement in gerunds.items():
         if lower.startswith(prefix):
             return replacement + text[len(prefix) :]
-    if lower.startswith(("request", "obtain", "contact", "review", "collect", "follow up")):
+    if lower.startswith(ACTION_TERMS):
         return text
     return f"Review {text[:1].lower()}{text[1:]}"
 
 
 def reason_from_candidate(candidate: str) -> str:
-    lower = candidate.lower()
+    cleaned = clean_candidate(candidate)
+    lower = cleaned.lower()
     if "not received" in lower or "not yet received" in lower or "has not been received" in lower:
         return "The matter context indicates this item has not been received."
-    if "incomplete" in lower or "not available" in lower or "missing" in lower:
+    if "incomplete" in lower or "not available" in lower or "missing" in lower or "never received" in lower:
         return "The matter context indicates this information is missing or incomplete."
     if "witness" in lower:
         return "The matter context identifies an available witness who may need follow-up."
-    return f"Candidate extracted from matter answer: {clean_candidate(candidate)}."
+    return f"Candidate extracted from matter answer: {cleaned}."
 
 
 def confidence_from_candidate(candidate: str) -> str:
     lower = candidate.lower()
-    if any(term in lower for term in ("not received", "not yet received", "missing", "incomplete", "not available")):
+    if any(term in lower for term in ("not received", "not yet received", "missing", "incomplete", "not available", "never received")):
         return "high"
-    if lower.startswith(("request", "requesting", "obtain", "obtaining", "contact", "contacting")):
+    if lower.startswith(ACTION_TERMS):
         return "high"
     return "medium"
 
 
-def build_task_candidate_objects(answer: str, sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def build_task_candidate_objects(answer: str, sources: List[Dict[str, object]]) -> List[Dict[str, object]]:
     source_refs = [source.get("source_id") for source in sources if source.get("source_id")]
-    structured: List[Dict[str, Any]] = []
+    structured: List[Dict[str, object]] = []
     seen_titles = set()
 
     for candidate in extract_task_candidates(answer):
