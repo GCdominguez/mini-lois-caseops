@@ -8,9 +8,9 @@ from pydantic import BaseModel, Field
 from actions import propose_action
 from matter_store import execute_action, get_audit_log, get_matter, get_matters, get_tasks, init_database
 from rag import DEFAULT_LLM_MODEL, answer_question
-from task_extractor import extract_task_candidates
+from task_extractor import build_task_candidate_objects
 
-app = FastAPI(title="Mini LOIS CaseOps API", version="0.5.1")
+app = FastAPI(title="Mini LOIS CaseOps API", version="0.5.2")
 init_database()
 
 
@@ -66,7 +66,7 @@ def ask_matter(matter_id: str, payload: AskRequest) -> Dict[str, Any]:
         "question": payload.question,
         "answer": answer,
         "sources": sources,
-        "task_candidates": extract_task_candidates(answer),
+        "task_candidates": build_task_candidate_objects(answer, sources),
     }
 
 
