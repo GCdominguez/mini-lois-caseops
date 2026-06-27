@@ -54,8 +54,28 @@ def display_candidate_reason(candidate: dict[str, Any]) -> str:
     reason = str(candidate.get("reason") or "").strip()
     original_text = str(candidate.get("original_text") or "").strip()
     if reason.startswith("Candidate extracted from matter answer:") and original_text:
-        return f"Suggested from the answer: {original_text}."
-    return reason or "Suggested from the answer."
+        return f"Mini LOIS identified this follow-up from the answer: {original_text}."
+    return reason or "Mini LOIS identified this as a possible follow-up from the answer."
+
+
+def source_lookup(sources: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {str(source.get("source_id")): source for source in sources if source.get("source_id")}
+
+
+def render_candidate_source_evidence(candidate: dict[str, Any], sources: list[dict[str, Any]]) -> None:
+    refs = [str(ref) for ref in candidate.get("source_refs", []) if ref]
+    st.write("Sources:", format_source_refs(refs))
+    sources_by_id = source_lookup(sources)
+    for ref in refs:
+        source = sources_by_id.get(ref)
+        if not source:
+            continue
+        label = f"{ref} · {source.get('source_file', 'source')} · chunk {source.get('chunk_index', '?')}"
+        snippet = str(source.get("text", "")).strip()
+        if len(snippet) > 650:
+            snippet = snippet[:650].rstrip() + "..."
+        st.markdown(f"**{label}**")
+        st.caption(snippet)
 
 
 def candidate_object_to_task(candidate: dict[str, Any], matter: dict[str, Any]) -> dict[str, Any]:
@@ -118,7 +138,7 @@ def render_sources(sources: list[dict[str, Any]]) -> None:
 
 def render_quick_actions(answer: str, matter: dict[str, Any], sources: list[dict[str, Any]], model: str) -> None:
     candidates = build_task_candidate_objects(answer, sources, model=model)
-    st.markdown("#### Quick task actions")
+    st.markdown("### Quick task actions")
     if not candidates:
         st.caption("No discrete recommendations detected.")
         return
@@ -128,20 +148,22 @@ def render_quick_actions(answer: str, matter: dict[str, Any], sources: list[dict
         set_batch([candidate_object_to_task(candidate, matter) for candidate in candidates], source_ids())
         st.rerun()
 
+    card_columns = st.columns(min(3, len(candidates)))
     for index, candidate in enumerate(candidates):
         action = candidate_object_to_task(candidate, matter)
         reason = display_candidate_reason(candidate)
-        with st.container(border=True):
-            st.markdown(f"**{candidate['title']}**")
-            st.caption(reason)
-            with st.expander("Why this task?"):
-                st.write("Reason:", reason)
-                st.write("Sources:", format_source_refs(candidate.get("source_refs", [])))
-                st.write("Confidence:", format_confidence(candidate.get("confidence")))
-                st.write("Original answer text:", candidate.get("original_text", ""))
-            if st.button("Create task", key=f"candidate_task_{index}"):
-                set_batch([action], source_ids())
-                st.rerun()
+        with card_columns[index % len(card_columns)]:
+            with st.container(border=True):
+                st.markdown(f"**{candidate['title']}**")
+                st.caption(reason)
+                with st.expander("Why this task?"):
+                    st.write("Reason:", reason)
+                    render_candidate_source_evidence(candidate, sources)
+                    st.write("Confidence:", format_confidence(candidate.get("confidence")))
+                    st.write("Original answer text:", candidate.get("original_text", ""))
+                if st.button("Create task", key=f"candidate_task_{index}"):
+                    set_batch([action], source_ids())
+                    st.rerun()
 
 
 def render_batch_editor(matter: dict[str, Any]) -> None:
@@ -237,7 +259,7 @@ with st.sidebar:
     selected_matter_id = selected_label.split(" · ")[0]
     matter = get_matter(selected_matter_id)
     st.info("Run `python ingest.py` before asking questions so Chroma has indexed the fake matter docs.")
-    st.caption("v0.5.5 polishes quick task explanations and source display.")
+    st.caption("v0.5.6 moves quick tasks into the main answer flow and shows source evidence.")
 
 if matter is None:
     st.error("Selected matter not found.")
@@ -267,17 +289,14 @@ with ask_tab:
             st.error(f"Question failed: {exc}")
 
     if st.session_state.get("last_answer"):
-        answer_col, actions_col = st.columns([3, 1])
-        with answer_col:
-            st.markdown("### Answer")
-            st.write(st.session_state["last_answer"])
-        with actions_col:
-            render_quick_actions(
-                st.session_state["last_answer"],
-                matter,
-                st.session_state.get("last_answer_sources", []),
-                model,
-            )
+        st.markdown("### Answer")
+        st.write(st.session_state["last_answer"])
+        render_quick_actions(
+            st.session_state["last_answer"],
+            matter,
+            st.session_state.get("last_answer_sources", []),
+            model,
+        )
         render_batch_editor(matter)
         render_sources(st.session_state.get("last_answer_sources", []))
 
