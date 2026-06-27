@@ -66,16 +66,18 @@ def render_candidate_source_evidence(candidate: dict[str, Any], sources: list[di
     refs = [str(ref) for ref in candidate.get("source_refs", []) if ref]
     st.write("Sources:", format_source_refs(refs))
     sources_by_id = source_lookup(sources)
-    for ref in refs:
+    for ref in refs[:2]:
         source = sources_by_id.get(ref)
         if not source:
             continue
         label = f"{ref} · {source.get('source_file', 'source')} · chunk {source.get('chunk_index', '?')}"
-        snippet = str(source.get("text", "")).strip()
-        if len(snippet) > 650:
-            snippet = snippet[:650].rstrip() + "..."
+        snippet = str(source.get("text", "")).strip().replace("\n", " ")
+        if len(snippet) > 260:
+            snippet = snippet[:260].rstrip() + "..."
         st.markdown(f"**{label}**")
         st.caption(snippet)
+    if len(refs) > 2:
+        st.caption(f"Additional source refs: {format_source_refs(refs[2:])}. See Retrieved sources below for full context.")
 
 
 def candidate_object_to_task(candidate: dict[str, Any], matter: dict[str, Any]) -> dict[str, Any]:
@@ -143,27 +145,33 @@ def render_quick_actions(answer: str, matter: dict[str, Any], sources: list[dict
         st.caption("No discrete recommendations detected.")
         return
 
-    st.caption(f"{len(candidates)} task candidate{'s' if len(candidates) != 1 else ''} found")
-    if st.button("Draft all tasks", type="primary", key="draft_all_inline_tasks"):
-        set_batch([candidate_object_to_task(candidate, matter) for candidate in candidates], source_ids())
-        st.rerun()
+    heading_col, button_col = st.columns([4, 1])
+    with heading_col:
+        st.caption(f"{len(candidates)} task candidate{'s' if len(candidates) != 1 else ''} found")
+    with button_col:
+        if st.button("Draft all tasks", type="primary", key="draft_all_inline_tasks"):
+            set_batch([candidate_object_to_task(candidate, matter) for candidate in candidates], source_ids())
+            st.rerun()
 
-    card_columns = st.columns(min(3, len(candidates)))
     for index, candidate in enumerate(candidates):
         action = candidate_object_to_task(candidate, matter)
         reason = display_candidate_reason(candidate)
-        with card_columns[index % len(card_columns)]:
-            with st.container(border=True):
+        with st.container(border=True):
+            title_col, meta_col, action_col = st.columns([3, 2, 1])
+            with title_col:
                 st.markdown(f"**{candidate['title']}**")
                 st.caption(reason)
-                with st.expander("Why this task?"):
-                    st.write("Reason:", reason)
-                    render_candidate_source_evidence(candidate, sources)
-                    st.write("Confidence:", format_confidence(candidate.get("confidence")))
-                    st.write("Original answer text:", candidate.get("original_text", ""))
+            with meta_col:
+                st.caption(f"Sources: {format_source_refs(candidate.get('source_refs', []))}")
+                st.caption(f"Confidence: {format_confidence(candidate.get('confidence'))}")
+            with action_col:
                 if st.button("Create task", key=f"candidate_task_{index}"):
                     set_batch([action], source_ids())
                     st.rerun()
+            with st.expander("Why this task?"):
+                st.write("Reason:", reason)
+                render_candidate_source_evidence(candidate, sources)
+                st.write("Original answer text:", candidate.get("original_text", ""))
 
 
 def render_batch_editor(matter: dict[str, Any]) -> None:
@@ -259,7 +267,7 @@ with st.sidebar:
     selected_matter_id = selected_label.split(" · ")[0]
     matter = get_matter(selected_matter_id)
     st.info("Run `python ingest.py` before asking questions so Chroma has indexed the fake matter docs.")
-    st.caption("v0.5.6 moves quick tasks into the main answer flow and shows source evidence.")
+    st.caption("v0.5.7 uses compact task rows with short source previews.")
 
 if matter is None:
     st.error("Selected matter not found.")
