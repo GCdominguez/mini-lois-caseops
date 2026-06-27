@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any, Dict, List
 
 CONCRETE_TERMS = (
     "record",
@@ -106,7 +107,7 @@ def is_vague_candidate(candidate: str) -> bool:
     return any(phrase in lower for phrase in VAGUE_PHRASES)
 
 
-def add_candidate(candidates: list[str], candidate: str, *, allow_concrete_without_signal: bool = False) -> None:
+def add_candidate(candidates: List[str], candidate: str, *, allow_concrete_without_signal: bool = False) -> None:
     candidate = clean_candidate(candidate)
     lower = candidate.lower()
     if len(candidate) < 8 or len(candidate) > 180:
@@ -127,7 +128,7 @@ def add_candidate(candidates: list[str], candidate: str, *, allow_concrete_witho
         candidates.append(candidate)
 
 
-def split_inline_task_candidates(fragment: str) -> list[str]:
+def split_inline_task_candidates(fragment: str) -> List[str]:
     fragment = fragment.strip().rstrip(".")
     fragment = re.sub(r"^[:\s,]+", "", fragment)
     fragment = re.split(r"\.\s+", fragment, maxsplit=1)[0]
@@ -137,7 +138,7 @@ def split_inline_task_candidates(fragment: str) -> list[str]:
     return [clean_candidate(part) for part in fragment.split(",") if clean_candidate(part)]
 
 
-def extract_inline_next_steps(line: str) -> list[str]:
+def extract_inline_next_steps(line: str) -> List[str]:
     lower = line.lower()
     for marker in NEXT_STEP_MARKERS:
         marker_index = lower.find(marker)
@@ -147,7 +148,7 @@ def extract_inline_next_steps(line: str) -> list[str]:
     return []
 
 
-def add_keyword_gap_candidates(answer: str, candidates: list[str]) -> None:
+def add_keyword_gap_candidates(answer: str, candidates: List[str]) -> None:
     lower = answer.lower()
     has_pending_signal = any(signal in lower for signal in PENDING_TERMS)
 
@@ -163,8 +164,8 @@ def add_keyword_gap_candidates(answer: str, candidates: list[str]) -> None:
         add_candidate(candidates, "contacting the available witness")
 
 
-def extract_task_candidates(answer: str) -> list[str]:
-    candidates: list[str] = []
+def extract_task_candidates(answer: str) -> List[str]:
+    candidates: List[str] = []
     capture_following_lines = False
 
     for raw_line in answer.splitlines():
@@ -190,3 +191,90 @@ def extract_task_candidates(answer: str) -> list[str]:
 
     add_keyword_gap_candidates(answer, candidates)
     return candidates[:8]
+
+
+def task_title_from_candidate(candidate: str) -> str:
+    text = clean_candidate(candidate)
+    lower = text.lower()
+
+    if "police report" in lower:
+        return "Request police report"
+    if "urgent care records" in lower or "urgent care record" in lower:
+        return "Request urgent care records"
+    if "physical therapy" in lower or "pt record" in lower:
+        return "Request PT records after April 19" if "after april 19" in lower else "Request PT records"
+    if "billing ledger" in lower and "urgent care" in lower:
+        return "Request urgent care billing ledger"
+    if "witness" in lower:
+        return "Contact available witness"
+    if "insurance policy" in lower or "coverage details" in lower:
+        return "Request insurance policy or coverage details"
+    if "communication" in lower or "email" in lower:
+        return "Request driver-company accident communications"
+    if "incident report" in lower or "accident report" in lower:
+        return "Request accident or incident report template"
+    if "safety protocol" in lower:
+        return "Request safety protocols for accident handling"
+    if "regulatory" in lower:
+        return "Review regulatory compliance documents"
+    if "company polic" in lower:
+        return "Review company accident and injury policies"
+
+    gerunds = {
+        "requesting ": "Request ",
+        "obtaining ": "Obtain ",
+        "contacting ": "Contact ",
+        "reviewing ": "Review ",
+        "collecting ": "Collect ",
+        "following up on ": "Follow up on ",
+    }
+    for prefix, replacement in gerunds.items():
+        if lower.startswith(prefix):
+            return replacement + text[len(prefix) :]
+    if lower.startswith(("request", "obtain", "contact", "review", "collect", "follow up")):
+        return text
+    return f"Review {text[:1].lower()}{text[1:]}"
+
+
+def reason_from_candidate(candidate: str) -> str:
+    lower = candidate.lower()
+    if "not received" in lower or "not yet received" in lower or "has not been received" in lower:
+        return "The matter context indicates this item has not been received."
+    if "incomplete" in lower or "not available" in lower or "missing" in lower:
+        return "The matter context indicates this information is missing or incomplete."
+    if "witness" in lower:
+        return "The matter context identifies an available witness who may need follow-up."
+    return f"Candidate extracted from matter answer: {clean_candidate(candidate)}."
+
+
+def confidence_from_candidate(candidate: str) -> str:
+    lower = candidate.lower()
+    if any(term in lower for term in ("not received", "not yet received", "missing", "incomplete", "not available")):
+        return "high"
+    if lower.startswith(("request", "requesting", "obtain", "obtaining", "contact", "contacting")):
+        return "high"
+    return "medium"
+
+
+def build_task_candidate_objects(answer: str, sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    source_refs = [source.get("source_id") for source in sources if source.get("source_id")]
+    structured: List[Dict[str, Any]] = []
+    seen_titles = set()
+
+    for candidate in extract_task_candidates(answer):
+        title = task_title_from_candidate(candidate)
+        if title in seen_titles:
+            continue
+        seen_titles.add(title)
+        structured.append(
+            {
+                "title": title,
+                "action_type": "create_task",
+                "reason": reason_from_candidate(candidate),
+                "confidence": confidence_from_candidate(candidate),
+                "source_refs": source_refs,
+                "original_text": clean_candidate(candidate),
+            }
+        )
+
+    return structured
