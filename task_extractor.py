@@ -6,96 +6,60 @@ from typing import Any, Dict, List, Optional
 
 import ollama
 
-CONCRETE_TERMS = (
+ACTION_VERBS = (
+    "request",
+    "obtain",
+    "acquire",
+    "contact",
+    "review",
+    "collect",
+    "follow up",
+    "draft",
+    "build",
+    "prepare",
+    "create",
+    "search",
+    "discuss",
+    "inquire",
+)
+
+TASK_OBJECT_TERMS = (
+    "name",
+    "contact",
     "record",
-    "records",
     "report",
-    "reports",
     "ledger",
     "witness",
-    "witnesses",
     "policy",
-    "policies",
     "procedure",
-    "procedures",
     "guideline",
-    "guidelines",
-    "coverage",
     "communication",
-    "communications",
     "email",
-    "emails",
     "document",
-    "documents",
     "protocol",
-    "protocols",
     "template",
-    "claim",
-    "claims",
     "handbook",
     "review",
-    "reviews",
+    "evaluation",
     "warning",
-    "warnings",
+    "disciplinary",
     "payroll",
     "paycheck",
     "statement",
     "outline",
     "timeline",
     "complaint",
-    "complaints",
     "response",
-    "responses",
     "letter",
-    "letters",
     "agency",
-    "agencies",
     "database",
-    "databases",
     "archive",
-    "archives",
     "source",
-    "sources",
     "nlrb",
     "court",
-    "courts",
 )
 
-ACTION_TERMS = (
-    "request",
-    "requesting",
-    "requested but",
-    "obtain",
-    "obtaining",
-    "acquire",
-    "acquiring",
-    "contact",
-    "contacting",
-    "reach out",
-    "reaching out",
-    "review",
-    "reviewing",
-    "collect",
-    "collecting",
-    "follow up",
-    "following up",
-    "draft",
-    "drafting",
-    "build",
-    "building",
-    "prepare",
-    "preparing",
-    "create",
-    "creating",
-    "search",
-    "searching",
-    "discuss",
-    "discussing",
-    "inquire",
-    "inquiring",
-)
-
-PENDING_TERMS = (
+PENDING_SIGNALS = (
     "missing",
     "not received",
     "not yet received",
@@ -104,7 +68,6 @@ PENDING_TERMS = (
     "never received",
     "not available",
     "not obtained",
-    "not been obtained",
     "incomplete",
     "need to",
     "needs to",
@@ -112,182 +75,138 @@ PENDING_TERMS = (
     "no evidence",
     "does not have",
     "not on file",
+    "do not have",
+    "don't have",
 )
 
-VAGUE_PHRASES = (
-    "pieces of the puzzle",
-    "fill in",
-    "move forward",
-    "build a strong case",
-    "better understanding",
-    "more information",
-    "keep an eye out",
-    "point of contention",
-    "potential defense",
-    "potentially complicate",
-    "case could",
-    "client's case",
-)
-
-NEXT_STEP_MARKERS = (
-    "next steps discussed were",
-    "next steps discussed include",
-    "next steps to take, including",
-    "next steps include",
-    "next steps were",
-    "next steps are",
-    "actionable items include",
-    "actionable items are",
-    "we should request",
-    "we should consider reviewing",
-    "we need to know",
-    "we still need to",
-    "we also need to",
-    "we need to",
-    "need to get",
-)
-
-ACTION_LIST_HEADERS = (
+SECTION_MARKERS = (
+    "such as:",
+    "including:",
+    "for example:",
+    "next steps:",
     "actionable items:",
     "action items:",
     "recommended actions:",
-    "next steps:",
+    "need to know:",
+    "we need to know:",
+    "we should request:",
+)
+
+QUESTION_STARTERS = (
+    "is there ",
+    "are there ",
+    "what are ",
+    "what is ",
+    "who is ",
+    "who are ",
+    "do we have ",
+    "does the matter have ",
 )
 
 
-def clean_candidate(candidate: str) -> str:
-    candidate = candidate.strip()
-    candidate = candidate.replace("**", "")
-    candidate = re.sub(r"\s*\[[Ss]\d+\]", "", candidate)
-    candidate = re.sub(r"\s+", " ", candidate)
-    candidate = re.sub(r"^(get our hands on|get|the)\s+", "", candidate, flags=re.IGNORECASE)
-    return candidate.strip(" -•\t").rstrip(".")
+def clean_text(text: str) -> str:
+    text = str(text or "").strip()
+    text = text.replace("**", "")
+    text = re.sub(r"\s*\[[Ss]\d+\]", "", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip(" -•\t").rstrip(".?")
 
 
-def contains_concrete_task_object(candidate: str) -> bool:
-    lower = candidate.lower()
-    return any(term in lower for term in CONCRETE_TERMS)
+def has_task_object(text: str) -> bool:
+    lower = text.lower()
+    return any(term in lower for term in TASK_OBJECT_TERMS)
 
 
-def has_action_signal(candidate: str) -> bool:
-    lower = candidate.lower()
-    return lower.startswith(ACTION_TERMS) or any(term in lower for term in PENDING_TERMS)
+def has_action_signal(text: str) -> bool:
+    lower = text.lower()
+    return lower.startswith(ACTION_VERBS) or any(signal in lower for signal in PENDING_SIGNALS)
 
 
-def is_vague_candidate(candidate: str) -> bool:
-    lower = candidate.lower()
-    return any(phrase in lower for phrase in VAGUE_PHRASES)
+def is_question_gap(text: str) -> bool:
+    lower = text.lower()
+    return lower.startswith(QUESTION_STARTERS) and has_task_object(text)
 
 
-def normalize_task_candidate(candidate: str) -> str:
-    candidate = clean_candidate(candidate)
-    if ":" in candidate:
-        prefix = clean_candidate(candidate.split(":", 1)[0])
-        if has_action_signal(prefix) and contains_concrete_task_object(prefix):
-            return prefix
-    return candidate
-
-
-def add_candidate(candidates: List[str], candidate: str, *, allow_concrete_without_signal: bool = False) -> None:
-    candidate = normalize_task_candidate(candidate)
-    lower = candidate.lower()
-    if len(candidate) < 8 or len(candidate) > 220:
-        return
+def should_keep_candidate(text: str, *, section_context: bool = False) -> bool:
+    text = clean_text(text)
+    lower = text.lower()
+    if len(text) < 8 or len(text) > 220:
+        return False
     if lower.startswith(("however", "unfortunately", "without more information")):
-        return
-    if lower in {"those missing documents", "missing documents", "requesting those missing documents"}:
-        return
-    if is_vague_candidate(candidate):
-        return
+        return False
+    if any(vague in lower for vague in ("build a stronger case", "more information", "better understanding")):
+        return False
+    return has_action_signal(text) or is_question_gap(text) or (section_context and has_task_object(text))
 
-    has_signal = has_action_signal(candidate)
-    has_object = contains_concrete_task_object(candidate)
-    if not has_signal and not (allow_concrete_without_signal and has_object):
-        return
 
-    if candidate not in candidates:
+def normalize_candidate(text: str) -> str:
+    text = clean_text(text)
+    if ":" in text:
+        prefix = clean_text(text.split(":", 1)[0])
+        if should_keep_candidate(prefix, section_context=True):
+            return prefix
+    return text
+
+
+def add_candidate(candidates: List[str], text: str, *, section_context: bool = False) -> None:
+    candidate = normalize_candidate(text)
+    if should_keep_candidate(candidate, section_context=section_context) and candidate not in candidates:
         candidates.append(candidate)
-
-
-def split_inline_task_candidates(fragment: str) -> List[str]:
-    fragment = fragment.strip().rstrip(".")
-    fragment = re.sub(r"^[:\s,]+", "", fragment)
-    fragment = re.split(r"\.\s+", fragment, maxsplit=1)[0]
-    fragment = fragment.replace(";", ",")
-    fragment = re.sub(r",\s+and\s+", ", ", fragment)
-    fragment = re.sub(r"\s+and\s+", ", ", fragment)
-    return [clean_candidate(part) for part in fragment.split(",") if clean_candidate(part)]
-
-
-def extract_inline_next_steps(line: str) -> List[str]:
-    lower = line.lower()
-    for marker in NEXT_STEP_MARKERS:
-        marker_index = lower.find(marker)
-        if marker_index != -1:
-            fragment = line[marker_index + len(marker) :]
-            return split_inline_task_candidates(fragment)
-    return []
-
-
-def add_keyword_gap_candidates(answer: str, candidates: List[str]) -> None:
-    lower = answer.lower()
-    has_pending_signal = any(signal in lower for signal in PENDING_TERMS)
-
-    if "police report" in lower and has_pending_signal:
-        add_candidate(candidates, "police report has not been received", allow_concrete_without_signal=True)
-    if ("urgent care records" in lower or "urgent care record" in lower) and has_pending_signal:
-        add_candidate(candidates, "urgent care records", allow_concrete_without_signal=True)
-    if ("physical therapy notes" in lower or "physical therapy records" in lower or "pt records" in lower) and has_pending_signal:
-        add_candidate(candidates, "physical therapy records", allow_concrete_without_signal=True)
-    if "billing ledger" in lower and "urgent care" in lower and has_pending_signal:
-        add_candidate(candidates, "urgent care billing ledger", allow_concrete_without_signal=True)
-    if "available witness" in lower and "contact" in lower:
-        add_candidate(candidates, "contacting the available witness")
 
 
 def extract_rule_based_task_candidates(answer: str) -> List[str]:
     candidates: List[str] = []
-    capture_following_lines = False
+    section_mode = False
+    captured_bullet = False
 
     for raw_line in answer.splitlines():
-        line = raw_line.strip()
+        line = clean_text(raw_line)
         if not line:
-            capture_following_lines = False
             continue
 
         lower = line.lower()
-        for candidate in extract_inline_next_steps(line):
-            add_candidate(candidates, candidate, allow_concrete_without_signal=True)
-
-        if lower.endswith(ACTION_LIST_HEADERS) or lower.endswith(("such as:", "including:", "for example:", "request:", "information on:", "need to know:")):
-            capture_following_lines = True
+        if lower.endswith(SECTION_MARKERS):
+            section_mode = True
+            captured_bullet = False
             continue
 
-        bullet_match = re.match(r"^(?:[-*•]|\d+[.)])\s+(.*)$", line)
-        if not capture_following_lines and bullet_match is None:
+        if "next steps" in lower and "include" in lower:
+            section_mode = True
+            captured_bullet = False
+            after = re.split(r"include(?:s|d)?", line, maxsplit=1, flags=re.IGNORECASE)[-1]
+            for part in re.split(r",|;| and ", after):
+                add_candidate(candidates, part, section_context=True)
             continue
 
-        candidate = bullet_match.group(1) if bullet_match else line
-        add_candidate(candidates, candidate, allow_concrete_without_signal=capture_following_lines)
+        bullet = re.match(r"^(?:[-*•]|\d+[.)])\s+(.*)$", line)
+        if section_mode:
+            if bullet:
+                add_candidate(candidates, bullet.group(1), section_context=True)
+                captured_bullet = True
+                continue
+            if captured_bullet:
+                section_mode = False
+                continue
 
-    add_keyword_gap_candidates(answer, candidates)
+        if bullet:
+            add_candidate(candidates, bullet.group(1), section_context=False)
+
     return candidates[:8]
 
 
-def _parse_json_array(raw_text: str) -> List[Any]:
+def parse_json_array(raw_text: str) -> List[Any]:
     raw_text = raw_text.strip()
     try:
         parsed = json.loads(raw_text)
     except json.JSONDecodeError:
         start = raw_text.find("[")
         end = raw_text.rfind("]")
-        if start == -1 or end == -1 or end <= start:
+        if start == -1 or end <= start:
             return []
         try:
             parsed = json.loads(raw_text[start : end + 1])
         except json.JSONDecodeError:
             return []
-
     if isinstance(parsed, dict):
         parsed = parsed.get("task_candidates", [])
     return parsed if isinstance(parsed, list) else []
@@ -298,17 +217,12 @@ def extract_model_task_candidates(answer: str, model: Optional[str]) -> List[str
         return []
 
     prompt = f"""
-You are extracting workflow task candidates from an AI-generated legal matter answer.
+Read this assistant answer and extract concrete workflow tasks.
+Return only valid JSON: an array of short task strings.
 
-Return ONLY valid JSON: an array of strings.
-
-Rules:
-- Extract only concrete operational tasks someone could create in a matter record.
-- Include tasks for missing documents, requested-but-not-received items, records to obtain, people to contact, statements to draft, timelines to build, policies/documents to review, agencies to contact, or databases to search.
-- Do not extract plain facts, symptoms, background context, completed/uploaded items, legal conclusions, or vague advice.
-- Prefer short task-like wording starting with a verb: Request, Obtain, Acquire, Contact, Draft, Build, Review, Prepare, Search, Discuss.
-- Do not invent tasks that are not supported by the answer.
-- Return [] if there are no actionable tasks.
+Extract tasks for records/documents to request, policies to review, people/agencies to contact, statements to draft, timelines to build, or databases to search.
+If missing info is written as a question, convert it into a task. Example: "Is there an employee handbook?" -> "Request employee handbook".
+Do not extract plain facts, completed items, symptoms, legal conclusions, or vague advice.
 
 Answer:
 {answer}
@@ -318,137 +232,102 @@ Answer:
         response = ollama.chat(
             model=model,
             messages=[
-                {"role": "system", "content": "You extract task candidates and return only valid JSON."},
+                {"role": "system", "content": "Return only valid JSON."},
                 {"role": "user", "content": prompt},
             ],
             options={"temperature": 0},
         )
-        content = response["message"]["content"]
     except Exception:
         return []
 
-    parsed = _parse_json_array(content)
+    parsed = parse_json_array(response["message"]["content"])
     candidates: List[str] = []
     for item in parsed:
-        if isinstance(item, str):
-            add_candidate(candidates, item, allow_concrete_without_signal=True)
-        elif isinstance(item, dict):
-            text = str(item.get("title") or item.get("task") or item.get("original_text") or "")
-            add_candidate(candidates, text, allow_concrete_without_signal=True)
+        text = item if isinstance(item, str) else item.get("title") or item.get("task") if isinstance(item, dict) else ""
+        add_candidate(candidates, str(text), section_context=True)
     return candidates
 
 
 def extract_task_candidates(answer: str, model: Optional[str] = None) -> List[str]:
     candidates: List[str] = []
-
     for candidate in extract_model_task_candidates(answer, model):
-        add_candidate(candidates, candidate, allow_concrete_without_signal=True)
-
+        add_candidate(candidates, candidate, section_context=True)
     for candidate in extract_rule_based_task_candidates(answer):
-        add_candidate(candidates, candidate, allow_concrete_without_signal=True)
-
+        add_candidate(candidates, candidate, section_context=True)
     return candidates[:8]
 
 
 def task_title_from_candidate(candidate: str) -> str:
-    text = normalize_task_candidate(candidate)
+    text = normalize_candidate(candidate)
     lower = text.lower()
 
-    if "employee handbook" in lower:
+    if ("employer" in lower or "company" in lower) and "name" in lower and "contact" in lower:
+        return "Request employer name and contact information"
+    if "employee handbook" in lower or "handbook" in lower:
         return "Request employee handbook"
-    if "performance reviews" in lower and "written warnings" in lower:
+    if "performance" in lower and ("review" in lower or "evaluation" in lower) and "warning" in lower:
         return "Obtain performance reviews and written warnings"
-    if "performance reviews" in lower or "performance evaluation" in lower or "performance evaluations" in lower:
-        return "Obtain performance reviews"
-    if "written warnings" in lower or "disciplinary action" in lower or "disciplinary actions" in lower:
+    if "performance" in lower and ("review" in lower or "evaluation" in lower):
+        return "Obtain performance review records"
+    if "written warning" in lower or "disciplinary" in lower:
         return "Obtain written warnings and disciplinary records"
     if "payroll" in lower or "paycheck" in lower:
         return "Acquire payroll records"
-    if "coworker statement" in lower or "statement outline" in lower:
+    if "coworker" in lower and "statement" in lower:
         return "Draft coworker statement outline"
-    if "timeline" in lower and ("complaint" in lower or "supervisor" in lower):
+    if "timeline" in lower:
         return "Build timeline of complaints and supervisor responses"
     if "termination letter" in lower:
         return "Review termination letter"
-    if "supervisor responses" in lower or "supervisor response" in lower:
+    if "supervisor" in lower and "response" in lower:
         return "Review supervisor responses"
-    if "workplace safety" in lower and ("policy" in lower or "policies" in lower):
+    if "workplace safety" in lower and ("policy" in lower or "procedure" in lower):
         return "Review workplace safety reporting policy"
-    if "retaliation" in lower and ("policy" in lower or "policies" in lower):
+    if "retaliation" in lower and "policy" in lower:
         return "Review anti-retaliation policy"
-    if "previous incidents" in lower or "prior incidents" in lower or "complaints related" in lower or "similar safety concerns" in lower:
+    if ("previous" in lower or "prior" in lower or "similar" in lower) and ("incident" in lower or "complaint" in lower):
         return "Review prior safety incidents and complaints"
-    if "nlrb" in lower or "state/local employment" in lower or "employment agencies" in lower:
+    if "nlrb" in lower or "employment agenc" in lower:
         return "Contact NLRB or employment agency"
-    if "online databases" in lower or "news archives" in lower or "court records" in lower:
+    if "database" in lower or "archive" in lower or "court" in lower:
         return "Search databases and court records"
-    if "dana cruz" in lower or "lead attorney" in lower:
+    if "lead attorney" in lower or "dana cruz" in lower:
         return "Discuss potential sources with lead attorney"
     if "police report" in lower:
         return "Request police report"
-    if "urgent care records" in lower or "urgent care record" in lower:
+    if "urgent care" in lower and "record" in lower:
         return "Request urgent care records"
     if "physical therapy" in lower or "pt record" in lower:
-        return "Request PT records after April 19" if "after april 19" in lower else "Request PT records"
-    if "billing ledger" in lower and "urgent care" in lower:
+        return "Request PT records"
+    if "billing ledger" in lower:
         return "Request urgent care billing ledger"
     if "witness" in lower:
         return "Contact available witness"
-    if "insurance policy" in lower or "coverage details" in lower:
+    if "insurance" in lower and ("policy" in lower or "coverage" in lower):
         return "Request insurance policy or coverage details"
-    if "communication" in lower or "email" in lower:
-        return "Request driver-company accident communications"
-    if "incident report" in lower or "accident report" in lower:
-        return "Request accident or incident report template"
-    if "safety protocol" in lower:
-        return "Request safety protocols for accident handling"
-    if "regulatory" in lower:
-        return "Review regulatory compliance documents"
-    if "company polic" in lower or "company handbook" in lower:
-        return "Review company policies and procedures"
 
-    gerunds = {
-        "requesting ": "Request ",
-        "obtaining ": "Obtain ",
-        "acquiring ": "Acquire ",
-        "contacting ": "Contact ",
-        "reaching out ": "Contact ",
-        "reviewing ": "Review ",
-        "collecting ": "Collect ",
-        "following up on ": "Follow up on ",
-        "drafting ": "Draft ",
-        "building ": "Build ",
-        "preparing ": "Prepare ",
-        "creating ": "Create ",
-        "searching ": "Search ",
-        "discussing ": "Discuss ",
-        "inquiring ": "Inquire ",
-    }
-    for prefix, replacement in gerunds.items():
-        if lower.startswith(prefix):
-            return replacement + text[len(prefix) :]
-    if lower.startswith(ACTION_TERMS):
-        return text[:1].upper() + text[1:]
+    for verb in ACTION_VERBS:
+        if lower.startswith(verb):
+            return text[:1].upper() + text[1:]
     return f"Review {text[:1].lower()}{text[1:]}"
 
 
 def reason_from_candidate(candidate: str) -> str:
-    cleaned = normalize_task_candidate(candidate)
-    lower = cleaned.lower()
-    if "not received" in lower or "not yet received" in lower or "has not been received" in lower:
-        return "The matter context indicates this item has not been received."
-    if "incomplete" in lower or "not available" in lower or "missing" in lower or "never received" in lower or "no evidence" in lower or "not on file" in lower:
-        return "The matter context indicates this information is missing or incomplete."
-    if "witness" in lower:
-        return "The matter context identifies an available witness who may need follow-up."
-    return f"Candidate extracted from matter answer: {cleaned}."
+    text = normalize_candidate(candidate)
+    lower = text.lower()
+    if any(signal in lower for signal in PENDING_SIGNALS):
+        return "The matter answer identifies this as missing or incomplete information."
+    if is_question_gap(text):
+        return "The answer frames this as information to verify or collect."
+    return f"Candidate extracted from matter answer: {text}."
 
 
 def confidence_from_candidate(candidate: str) -> str:
-    lower = candidate.lower()
-    if any(term in lower for term in ("not received", "not yet received", "missing", "incomplete", "not available", "never received", "no evidence", "not on file")):
+    text = normalize_candidate(candidate)
+    lower = text.lower()
+    if any(signal in lower for signal in PENDING_SIGNALS):
         return "high"
-    if lower.startswith(ACTION_TERMS):
+    if lower.startswith(ACTION_VERBS):
         return "high"
     return "medium"
 
@@ -470,7 +349,7 @@ def build_task_candidate_objects(answer: str, sources: List[Dict[str, object]], 
                 "reason": reason_from_candidate(candidate),
                 "confidence": confidence_from_candidate(candidate),
                 "source_refs": source_refs,
-                "original_text": normalize_task_candidate(candidate),
+                "original_text": normalize_candidate(candidate),
             }
         )
 
