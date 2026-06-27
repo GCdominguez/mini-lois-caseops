@@ -23,6 +23,22 @@ ACTION_VERBS = (
     "inquire",
 )
 
+INLINE_ACTION_VERBS = (
+    "request",
+    "obtain",
+    "acquire",
+    "contact",
+    "review",
+    "collect",
+    "follow up",
+    "draft",
+    "build",
+    "prepare",
+    "create",
+    "search",
+    "discuss",
+)
+
 TASK_OBJECT_TERMS = (
     "name",
     "contact",
@@ -57,6 +73,10 @@ TASK_OBJECT_TERMS = (
     "source",
     "nlrb",
     "court",
+    "extension",
+    "continuance",
+    "summary",
+    "concern",
 )
 
 PENDING_SIGNALS = (
@@ -145,6 +165,19 @@ MATTER_WORKFLOW_QUESTION_TERMS = (
     "file",
     "source",
     "workflow",
+    "discovery",
+    "mediation",
+    "pre-mediation",
+    "phase",
+    "move forward",
+    "get out",
+    "proceed",
+    "representation",
+    "represent",
+    "attorney",
+    "paralegal",
+    "extension",
+    "continuance",
 )
 
 SUPPRESSED_QUESTION_SIGNALS = (
@@ -167,9 +200,12 @@ SUPPRESSED_QUESTION_SIGNALS = (
     "song",
     "lighthouse",
     "my name is",
+    "who am i",
+    "where am i",
     "hello",
     "hi ",
     "hey",
+    "quit my job",
     "doockie",
     "pookie",
     "poopy",
@@ -201,6 +237,43 @@ CLARIFICATION_ANSWER_SIGNALS = (
     "would you like me to",
     "which aspect of the matter you'd like to discuss",
 )
+
+STOPWORDS = {
+    "about",
+    "after",
+    "again",
+    "also",
+    "from",
+    "have",
+    "into",
+    "more",
+    "only",
+    "that",
+    "their",
+    "there",
+    "these",
+    "this",
+    "those",
+    "through",
+    "with",
+    "would",
+    "could",
+    "should",
+    "request",
+    "obtain",
+    "acquire",
+    "contact",
+    "review",
+    "collect",
+    "follow",
+    "draft",
+    "build",
+    "prepare",
+    "create",
+    "search",
+    "discuss",
+    "inquire",
+}
 
 
 def clean_text(text: str) -> str:
@@ -246,6 +319,28 @@ def should_extract_tasks(question: Optional[str], answer: str) -> bool:
     return True
 
 
+def significant_terms(text: str) -> set[str]:
+    tokens = re.findall(r"[a-zA-Z][a-zA-Z-]{2,}", clean_text(text).lower())
+    return {token for token in tokens if token not in STOPWORDS and len(token) >= 4}
+
+
+def candidate_supported_by_answer(candidate: str, answer: str) -> bool:
+    candidate_text = clean_text(candidate).lower()
+    answer_text = clean_text(answer).lower()
+    if not candidate_text or not answer_text:
+        return False
+    if candidate_text in answer_text:
+        return True
+
+    terms = significant_terms(candidate_text)
+    if not terms:
+        return False
+
+    overlap = {term for term in terms if term in answer_text}
+    required = 1 if len(terms) <= 2 else 2
+    return len(overlap) >= required
+
+
 def has_task_object(text: str) -> bool:
     lower = text.lower()
     return any(term in lower for term in TASK_OBJECT_TERMS)
@@ -288,6 +383,48 @@ def add_candidate(candidates: List[str], text: str, *, section_context: bool = F
         candidates.append(candidate)
 
 
+def expand_compound_candidate(candidate: str) -> list[str]:
+    text = normalize_candidate(candidate)
+    lower = text.lower()
+    expanded: list[str] = []
+
+    if "record" in lower and "ledger" in lower:
+        if "urgent care" in lower:
+            expanded.append("obtain urgent care records")
+            expanded.append("obtain urgent care billing ledger")
+        else:
+            expanded.append("obtain missing records")
+            expanded.append("obtain billing ledger")
+    elif "physical therapy" in lower and "urgent care" in lower and "record" in lower:
+        expanded.append("obtain urgent care records")
+        expanded.append("obtain physical therapy records")
+
+    return expanded or [text]
+
+
+def inline_action_candidates(line: str) -> list[str]:
+    line = clean_text(line)
+    lower = line.lower()
+    if not any(re.search(rf"\b{re.escape(verb)}\b", lower) for verb in INLINE_ACTION_VERBS):
+        return []
+
+    candidates: list[str] = []
+    clauses = re.split(r"\.\s+|;|\bor\b", line)
+    for clause in clauses:
+        clause = clean_text(clause)
+        match = re.search(
+            r"\b(request|obtain|acquire|contact|review|collect|follow up|draft|build|prepare|create|search|discuss)\b(.+)",
+            clause,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            continue
+        candidate = clean_text(match.group(0))
+        for expanded in expand_compound_candidate(candidate):
+            candidates.append(expanded)
+    return candidates
+
+
 def extract_rule_based_task_candidates(answer: str, question: Optional[str] = None) -> List[str]:
     if not should_extract_tasks(question, answer):
         return []
@@ -314,6 +451,9 @@ def extract_rule_based_task_candidates(answer: str, question: Optional[str] = No
             for part in re.split(r",|;| and ", after):
                 add_candidate(candidates, part, section_context=True)
             continue
+
+        for candidate in inline_action_candidates(line):
+            add_candidate(candidates, candidate, section_context=True)
 
         bullet = re.match(r"^(?:[-*•]|\d+[.)])\s+(.*)$", line)
         if section_mode:
@@ -359,7 +499,8 @@ Return only valid JSON: an array of short task strings.
 
 Rules:
 - If the question is casual, nonsense, a greeting, a current-date question, a creative-writing request, a model/security/secrets question, or otherwise not matter/workflow-related, return [].
-- Extract tasks for records/documents to request, policies to review, people/agencies to contact, statements to draft, timelines to build, or databases to search.
+- Extract only tasks that are directly stated in the answer.
+- Extract tasks for records/documents to request, policies to review, people/agencies to contact, statements to draft, timelines to build, extensions/continuances to request, or databases to search.
 - If missing info is written as a question, convert it into a task. Example: "Is there an employee handbook?" -> "Request employee handbook".
 - Do not extract plain facts, completed items, symptoms, legal conclusions, clarification options, or vague advice.
 
@@ -386,7 +527,9 @@ Answer:
     candidates: List[str] = []
     for item in parsed:
         text = item if isinstance(item, str) else item.get("title") or item.get("task") if isinstance(item, dict) else ""
-        add_candidate(candidates, str(text), section_context=True)
+        for expanded in expand_compound_candidate(str(text)):
+            if candidate_supported_by_answer(expanded, answer):
+                add_candidate(candidates, expanded, section_context=True)
     return candidates
 
 
@@ -450,6 +593,14 @@ def task_title_from_candidate(candidate: str) -> str:
         return "Contact available witness"
     if "insurance" in lower and ("policy" in lower or "coverage" in lower):
         return "Request insurance policy or coverage details"
+    if "extension" in lower:
+        return "Request extension of time"
+    if "continuance" in lower:
+        return "Request continuance of pre-mediation discovery"
+    if "intake summary" in lower or "medical summary" in lower:
+        return "Review intake and medical summaries"
+    if "concern" in lower and "paralegal" in lower:
+        return "Discuss representation concerns with paralegal"
 
     for verb in ACTION_VERBS:
         if lower.startswith(verb):
