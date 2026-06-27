@@ -1,0 +1,27 @@
+{
+  "event_type": "task.created",
+  "event_version": "2026-06-27.v1",
+  "event_id": "evt_demo_0001",
+  "occurred_at": "2026-06-27T16:55:00Z",
+  "source": "mini-lois-caseops",
+  "matter_id": "MAT-1001",
+  "task": {
+    "title": "Request police report",
+    "assigned_to": "Miguel Santos",
+    "due_date": null,
+    "status": "Open",
+    "reason": "Police report was requested but not yet received."
+  },
+  "source_refs": ["S1", "S2"],
+  "audit": {
+    "audit_id": "audit_demo_0001",
+    "approval_required": true,
+    "approved_by": "demo_user",
+    "approved_at": "2026-06-27T16:54:30Z"
+  },
+  "integration_notes": {
+    "idempotency_key": "MAT-1001:task.created:request-police-report",
+    "retry_policy": "future_work",
+    "signature_verification": "future_work"
+  }
+}
