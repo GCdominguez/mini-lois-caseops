@@ -19,7 +19,7 @@ from matter_store import (
     init_database,
 )
 from rag import DEFAULT_LLM_MODEL, answer_question
-from task_extractor import extract_task_candidates
+from task_extractor import extract_task_candidates, task_title_from_candidate
 
 st.set_page_config(page_title="Mini LOIS: CaseOps AI", page_icon="⚖️", layout="wide")
 init_database()
@@ -40,45 +40,7 @@ def parse_optional_date(value: Any) -> str | None:
 
 
 def task_title(candidate: str) -> str:
-    text = candidate.strip().rstrip(".")
-    lower = text.lower()
-    if "police report" in lower:
-        return "Request police report"
-    if "urgent care records" in lower or "urgent care record" in lower:
-        return "Request urgent care records"
-    if "physical therapy" in lower or "pt record" in lower:
-        return "Request PT records after April 19" if "after april 19" in lower else "Request PT records"
-    if "billing ledger" in lower and "urgent care" in lower:
-        return "Request urgent care billing ledger"
-    if "witness" in lower:
-        return "Contact available witness"
-    if "insurance policy" in lower or "coverage details" in lower:
-        return "Request insurance policy or coverage details"
-    if "communication" in lower or "email" in lower:
-        return "Request driver-company accident communications"
-    if "incident report" in lower or "accident report" in lower:
-        return "Request accident or incident report template"
-    if "safety protocol" in lower:
-        return "Request safety protocols for accident handling"
-    if "regulatory" in lower:
-        return "Review regulatory compliance documents"
-    if "company polic" in lower:
-        return "Review company accident and injury policies"
-
-    gerunds = {
-        "requesting ": "Request ",
-        "obtaining ": "Obtain ",
-        "contacting ": "Contact ",
-        "reviewing ": "Review ",
-        "collecting ": "Collect ",
-        "following up on ": "Follow up on ",
-    }
-    for prefix, replacement in gerunds.items():
-        if lower.startswith(prefix):
-            return replacement + text[len(prefix) :]
-    if lower.startswith(("request", "obtain", "contact", "review", "collect", "follow up")):
-        return text
-    return f"Review {text[:1].lower()}{text[1:]}"
+    return task_title_from_candidate(candidate)
 
 
 def candidate_to_task(candidate: str, matter: dict[str, Any]) -> dict[str, Any]:
@@ -254,7 +216,7 @@ with st.sidebar:
     selected_matter_id = selected_label.split(" · ")[0]
     matter = get_matter(selected_matter_id)
     st.info("Run `python ingest.py` before asking questions so Chroma has indexed the fake matter docs.")
-    st.caption("v0.4.6 requires actionable task signals.")
+    st.caption("v0.4.8 improves action-list extraction and shared task title normalization.")
 
 if matter is None:
     st.error("Selected matter not found.")
