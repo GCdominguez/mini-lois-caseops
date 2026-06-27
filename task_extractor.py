@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 import re
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
+
+import ollama
 
 CONCRETE_TERMS = (
     "record",
@@ -212,7 +215,7 @@ def add_keyword_gap_candidates(answer: str, candidates: List[str]) -> None:
         add_candidate(candidates, "contacting the available witness")
 
 
-def extract_task_candidates(answer: str) -> List[str]:
+def extract_rule_based_task_candidates(answer: str) -> List[str]:
     candidates: List[str] = []
     capture_following_lines = False
 
@@ -226,7 +229,7 @@ def extract_task_candidates(answer: str) -> List[str]:
         for candidate in extract_inline_next_steps(line):
             add_candidate(candidates, candidate, allow_concrete_without_signal=True)
 
-        if lower.endswith(ACTION_LIST_HEADERS) or lower.endswith(("such as:", "including:", "for example:")):
+        if lower.endswith(ACTION_LIST_HEADERS) or lower.endswith(("such as:", "including:", "for example:", "request:", "information on:")):
             capture_following_lines = True
             continue
 
@@ -238,6 +241,82 @@ def extract_task_candidates(answer: str) -> List[str]:
         add_candidate(candidates, candidate, allow_concrete_without_signal=capture_following_lines)
 
     add_keyword_gap_candidates(answer, candidates)
+    return candidates[:8]
+
+
+def _parse_json_array(raw_text: str) -> List[Any]:
+    raw_text = raw_text.strip()
+    try:
+        parsed = json.loads(raw_text)
+    except json.JSONDecodeError:
+        start = raw_text.find("[")
+        end = raw_text.rfind("]")
+        if start == -1 or end == -1 or end <= start:
+            return []
+        try:
+            parsed = json.loads(raw_text[start : end + 1])
+        except json.JSONDecodeError:
+            return []
+
+    if isinstance(parsed, dict):
+        parsed = parsed.get("task_candidates", [])
+    return parsed if isinstance(parsed, list) else []
+
+
+def extract_model_task_candidates(answer: str, model: Optional[str]) -> List[str]:
+    if not model:
+        return []
+
+    prompt = f"""
+You are extracting workflow task candidates from an AI-generated legal matter answer.
+
+Return ONLY valid JSON: an array of strings.
+
+Rules:
+- Extract only concrete operational tasks someone could create in a matter record.
+- Include tasks for missing documents, requested-but-not-received items, records to obtain, people to contact, statements to draft, timelines to build, or policies/documents to review.
+- Do not extract plain facts, symptoms, background context, completed/uploaded items, legal conclusions, or vague advice.
+- Prefer short task-like wording starting with a verb: Request, Obtain, Acquire, Contact, Draft, Build, Review, Prepare.
+- Do not invent tasks that are not supported by the answer.
+- Return [] if there are no actionable tasks.
+
+Answer:
+{answer}
+""".strip()
+
+    try:
+        response = ollama.chat(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You extract task candidates and return only valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            options={"temperature": 0},
+        )
+        content = response["message"]["content"]
+    except Exception:
+        return []
+
+    parsed = _parse_json_array(content)
+    candidates: List[str] = []
+    for item in parsed:
+        if isinstance(item, str):
+            add_candidate(candidates, item, allow_concrete_without_signal=True)
+        elif isinstance(item, dict):
+            text = str(item.get("title") or item.get("task") or item.get("original_text") or "")
+            add_candidate(candidates, text, allow_concrete_without_signal=True)
+    return candidates
+
+
+def extract_task_candidates(answer: str, model: Optional[str] = None) -> List[str]:
+    candidates: List[str] = []
+
+    for candidate in extract_model_task_candidates(answer, model):
+        add_candidate(candidates, candidate, allow_concrete_without_signal=True)
+
+    for candidate in extract_rule_based_task_candidates(answer):
+        add_candidate(candidates, candidate, allow_concrete_without_signal=True)
+
     return candidates[:8]
 
 
@@ -275,8 +354,10 @@ def task_title_from_candidate(candidate: str) -> str:
         return "Request safety protocols for accident handling"
     if "regulatory" in lower:
         return "Review regulatory compliance documents"
-    if "company polic" in lower:
-        return "Review company accident and injury policies"
+    if "company polic" in lower or "company handbook" in lower:
+        return "Review company policies and procedures"
+    if "previous incidents" in lower or "complaints related" in lower:
+        return "Review prior safety incidents and complaints"
 
     gerunds = {
         "requesting ": "Request ",
@@ -320,12 +401,12 @@ def confidence_from_candidate(candidate: str) -> str:
     return "medium"
 
 
-def build_task_candidate_objects(answer: str, sources: List[Dict[str, object]]) -> List[Dict[str, object]]:
+def build_task_candidate_objects(answer: str, sources: List[Dict[str, object]], model: Optional[str] = None) -> List[Dict[str, object]]:
     source_refs = [source.get("source_id") for source in sources if source.get("source_id")]
     structured: List[Dict[str, object]] = []
     seen_titles = set()
 
-    for candidate in extract_task_candidates(answer):
+    for candidate in extract_task_candidates(answer, model=model):
         title = task_title_from_candidate(candidate)
         if title in seen_titles:
             continue
