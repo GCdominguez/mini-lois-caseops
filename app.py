@@ -138,8 +138,8 @@ def render_sources(sources: list[dict[str, Any]]) -> None:
             st.write(source["text"])
 
 
-def render_quick_actions(answer: str, matter: dict[str, Any], sources: list[dict[str, Any]], model: str) -> None:
-    candidates = build_task_candidate_objects(answer, sources, model=model)
+def render_quick_actions(answer: str, question: str, matter: dict[str, Any], sources: list[dict[str, Any]], model: str) -> None:
+    candidates = build_task_candidate_objects(answer, sources, model=model, question=question)
     st.markdown("### Quick task actions")
     if not candidates:
         st.caption("No discrete recommendations detected.")
@@ -267,7 +267,7 @@ with st.sidebar:
     selected_matter_id = selected_label.split(" · ")[0]
     matter = get_matter(selected_matter_id)
     st.info("Run `python ingest.py` before asking questions so Chroma has indexed the fake matter docs.")
-    st.caption("v0.5.7 uses compact task rows with short source previews.")
+    st.caption("v0.5.8 gates quick tasks by question intent.")
 
 if matter is None:
     st.error("Selected matter not found.")
@@ -301,6 +301,7 @@ with ask_tab:
         st.write(st.session_state["last_answer"])
         render_quick_actions(
             st.session_state["last_answer"],
+            st.session_state.get("last_question", ""),
             matter,
             st.session_state.get("last_answer_sources", []),
             model,
