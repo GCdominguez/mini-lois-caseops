@@ -1,6 +1,6 @@
 # API Examples
 
-These examples show the Mini LOIS API as a small API-platform surface: authenticated requests, structured errors, AI-generated task candidates, approval-gated write-back, audit logs, and webhook-style event records.
+These examples show the Mini LOIS API as a small API-platform surface: versioned endpoints, authenticated requests, structured errors, AI-generated task candidates, approval-gated write-back, idempotency, audit logs, webhook-style event records, pagination/filtering, and a fake DataBridge import.
 
 The local demo API key is `demo-key` unless you override it with `MINI_LOIS_API_KEY`.
 
@@ -21,7 +21,7 @@ http://127.0.0.1:8000/docs
 Most examples pipe through `python3 -m json.tool` so the response is readable in Terminal.
 
 ```bash
-curl -s http://127.0.0.1:8000/health | python3 -m json.tool
+curl -s http://127.0.0.1:8000/v1/health | python3 -m json.tool
 ```
 
 Expected response:
@@ -29,14 +29,14 @@ Expected response:
 ```json
 {
   "status": "ok",
-  "version": "0.6.0"
+  "version": "0.7.0"
 }
 ```
 
 ## Authenticated matter list
 
 ```bash
-curl -s http://127.0.0.1:8000/matters \
+curl -s http://127.0.0.1:8000/v1/matters \
   -H "X-API-Key: demo-key" \
   | python3 -m json.tool
 ```
@@ -44,7 +44,7 @@ curl -s http://127.0.0.1:8000/matters \
 Without `X-API-Key`, protected endpoints return a structured `401` error.
 
 ```bash
-curl -s http://127.0.0.1:8000/matters \
+curl -s http://127.0.0.1:8000/v1/matters \
   | python3 -m json.tool
 ```
 
@@ -61,7 +61,7 @@ Expected shape:
 ## Ask a matter question and receive task candidates
 
 ```bash
-curl -s -X POST http://127.0.0.1:8000/matters/MAT-1001/ask \
+curl -s -X POST http://127.0.0.1:8000/v1/matters/MAT-1001/ask \
   -H "X-API-Key: demo-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -101,7 +101,7 @@ The response contains:
 ## Structured `404` error
 
 ```bash
-curl -s -X POST http://127.0.0.1:8000/matters/MAT-9999/ask \
+curl -s -X POST http://127.0.0.1:8000/v1/matters/MAT-9999/ask \
   -H "X-API-Key: demo-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -124,13 +124,14 @@ Expected shape:
 }
 ```
 
-## Approve a task write-back
+## Approve a task write-back with idempotency
 
 This simulates another system approving a task candidate that Mini LOIS produced.
 
 ```bash
-curl -s -X POST http://127.0.0.1:8000/actions/approve \
+curl -s -X POST http://127.0.0.1:8000/v1/actions/approve \
   -H "X-API-Key: demo-key" \
+  -H "Idempotency-Key: approve-MAT-1001-pt-records-001" \
   -H "Content-Type: application/json" \
   -d '{
     "approved_action": {
@@ -170,30 +171,47 @@ Expected shape:
     "action_type": "create_task",
     "matter_id": "MAT-1001",
     "title": "Request PT records"
+  },
+  "idempotency": {
+    "key": "approve-MAT-1001-pt-records-001",
+    "replayed": false
   }
 }
 ```
 
-## Confirm the task was written back
+Run the same request again with the same `Idempotency-Key`. The API should return the original response with:
+
+```json
+{
+  "idempotency": {
+    "key": "approve-MAT-1001-pt-records-001",
+    "replayed": true
+  }
+}
+```
+
+That means the second request did not create a duplicate task.
+
+## Confirm the task was written back with filtering and pagination
 
 ```bash
-curl -s http://127.0.0.1:8000/matters/MAT-1001/tasks \
+curl -s "http://127.0.0.1:8000/v1/matters/MAT-1001/tasks?status=Open&limit=10&offset=0" \
   -H "X-API-Key: demo-key" \
   | python3 -m json.tool
 ```
 
-## Confirm the audit log
+## Confirm the audit log with pagination
 
 ```bash
-curl -s http://127.0.0.1:8000/matters/MAT-1001/audit \
+curl -s "http://127.0.0.1:8000/v1/matters/MAT-1001/audit?limit=10&offset=0" \
   -H "X-API-Key: demo-key" \
   | python3 -m json.tool
 ```
 
-## Confirm webhook-style event output
+## Confirm webhook-style event output with filtering
 
 ```bash
-curl -s http://127.0.0.1:8000/matters/MAT-1001/webhook-events \
+curl -s "http://127.0.0.1:8000/v1/matters/MAT-1001/webhook-events?event_type=task.created&delivery_status=queued&limit=10&offset=0" \
   -H "X-API-Key: demo-key" \
   | python3 -m json.tool
 ```
@@ -209,6 +227,8 @@ Expected shape:
     "resource_type": "task",
     "resource_id": "1",
     "delivery_status": "queued",
+    "attempt_count": 0,
+    "next_retry_at": null,
     "created_at": "...",
     "payload": {
       "event_type": "task.created",
@@ -227,6 +247,47 @@ Expected shape:
 ]
 ```
 
+## Fake DataBridge import
+
+This simulates a partner or external system sending matter data into the platform.
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/v1/databridge/import \
+  -H "X-API-Key: demo-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "external_system": "demo_crm",
+    "external_case_id": "ABC-123",
+    "client_full_name": "Alicia Johnson",
+    "case_type": "Personal Injury",
+    "matter_name": "Johnson v. RideshareCo Imported",
+    "phase": "Imported intake",
+    "lead_attorney": "Dana Cruz",
+    "paralegal": "Miguel Santos",
+    "status": "Imported"
+  }' \
+  | python3 -m json.tool
+```
+
+Expected shape:
+
+```json
+{
+  "status": "created",
+  "external_system": "demo_crm",
+  "external_matter_id": "ABC-123",
+  "matter": {
+    "matter_id": "MAT-EXT-ABC-123",
+    "matter_name": "Johnson v. RideshareCo Imported",
+    "matter_type": "Personal Injury",
+    "client": "Alicia Johnson",
+    "phase": "Imported intake"
+  }
+}
+```
+
+Run it again with the same `external_system` and `external_case_id`, and it updates the same mapped matter instead of creating a new one.
+
 ## Why this matters for API Platform PM work
 
-This turns the prototype from a UI-only demo into a small platform contract. A partner system can ask a matter question, receive structured task candidates, approve a write-back, verify the matter record, inspect the audit trail, and observe a webhook-style event that another integration could consume.
+This turns the prototype from a UI-only demo into a small platform contract. A partner system can ask a matter question, receive structured task candidates, approve a write-back safely, avoid duplicate writes with idempotency, verify the matter record, inspect the audit trail, observe webhook-style events, and import external matter data through a DataBridge-style endpoint.
