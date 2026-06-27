@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.7
+
+- Added versioned `/v1` API routes while keeping unversioned local prototype routes available.
+- Added idempotency support for `/v1/actions/approve` using the `Idempotency-Key` header.
+- Added `409 idempotency_conflict` structured errors when an idempotency key is reused with a different request body.
+- Added pagination and filtering for task, audit, and webhook event list endpoints.
+- Added fake DataBridge-style matter import at `/v1/databridge/import` with external ID mapping.
+- Added `docs/API_CONTRACT.md` to document stable API shapes and product rules.
+- Updated `docs/API_EXAMPLES.md` with v0.7 curl examples.
+
 ## v0.6
 
 - Added local API-key authentication for protected API endpoints.
