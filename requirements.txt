@@ -1,3 +1,5 @@
 streamlit
 ollama
 chromadb
+fastapi
+uvicorn
