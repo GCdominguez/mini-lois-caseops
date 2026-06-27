@@ -101,8 +101,8 @@ def render_sources(sources: list[dict[str, Any]]) -> None:
             st.write(source["text"])
 
 
-def render_quick_actions(answer: str, matter: dict[str, Any]) -> None:
-    candidates = extract_task_candidates(answer)
+def render_quick_actions(answer: str, matter: dict[str, Any], model: str) -> None:
+    candidates = extract_task_candidates(answer, model=model)
     st.markdown("#### Quick task actions")
     if not candidates:
         st.caption("No discrete recommendations detected.")
@@ -202,7 +202,7 @@ def render_action_editor(action: dict[str, Any], sources: list[dict[str, Any]], 
 
 
 st.title("Mini LOIS: CaseOps AI")
-st.caption("Local prototype: matter-scoped RAG, source-cited answers, inline task extraction, editable approval, write-back, and audit trail.")
+st.caption("Local prototype: matter-scoped RAG, source-cited answers, model-assisted task extraction, editable approval, write-back, and audit trail.")
 
 matters = get_matters()
 if not matters:
@@ -216,7 +216,7 @@ with st.sidebar:
     selected_matter_id = selected_label.split(" · ")[0]
     matter = get_matter(selected_matter_id)
     st.info("Run `python ingest.py` before asking questions so Chroma has indexed the fake matter docs.")
-    st.caption("v0.4.8 improves action-list extraction and shared task title normalization.")
+    st.caption("v0.5.3 uses model-assisted quick task extraction with rule-based validation.")
 
 if matter is None:
     st.error("Selected matter not found.")
@@ -251,7 +251,7 @@ with ask_tab:
             st.markdown("### Answer")
             st.write(st.session_state["last_answer"])
         with actions_col:
-            render_quick_actions(st.session_state["last_answer"], matter)
+            render_quick_actions(st.session_state["last_answer"], matter, model)
         render_batch_editor(matter)
         render_sources(st.session_state.get("last_answer_sources", []))
 
