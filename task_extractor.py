@@ -103,6 +103,79 @@ QUESTION_STARTERS = (
     "does the matter have ",
 )
 
+MATTER_WORKFLOW_QUESTION_TERMS = (
+    "matter",
+    "case",
+    "client",
+    "employer",
+    "johnson",
+    "alicia",
+    "rideshare",
+    "martinez",
+    "luis",
+    "record",
+    "records",
+    "document",
+    "documents",
+    "docs",
+    "evidence",
+    "missing",
+    "gap",
+    "gaps",
+    "next",
+    "action",
+    "task",
+    "risk",
+    "status",
+    "summary",
+    "witness",
+    "police",
+    "medical",
+    "billing",
+    "pt",
+    "urgent care",
+    "claim",
+    "defense",
+    "liability",
+    "treatment",
+    "handbook",
+    "performance",
+    "warning",
+    "payroll",
+    "file",
+    "source",
+    "workflow",
+)
+
+SUPPRESSED_QUESTION_SIGNALS = (
+    "what model",
+    "model are you",
+    "keys",
+    "secrets",
+    "api key",
+    "password",
+    "token",
+    "system prompt",
+    "instructions",
+    "today",
+    "current date",
+    "what time",
+    "poem",
+    "story",
+    "joke",
+    "haiku",
+    "song",
+    "lighthouse",
+    "my name is",
+    "hello",
+    "hi ",
+    "hey",
+    "doockie",
+    "pookie",
+    "poopy",
+    "poop",
+)
+
 IRRELEVANT_ANSWER_SIGNALS = (
     "no relevant information provided",
     "no relevant information in the context",
@@ -114,6 +187,19 @@ IRRELEVANT_ANSWER_SIGNALS = (
     "not connected to any of the provided information",
     "not relevant to this matter",
     "unrelated to this matter",
+    "no connection to the matter",
+    "no connection to matter",
+    "no connection to the matter metadata",
+)
+
+CLARIFICATION_ANSWER_SIGNALS = (
+    "not sure what question or topic",
+    "i'm not sure what question",
+    "please provide more context",
+    "could you please provide more context",
+    "please let me know how i can assist",
+    "would you like me to",
+    "which aspect of the matter you'd like to discuss",
 )
 
 
@@ -128,6 +214,36 @@ def clean_text(text: str) -> str:
 def answer_is_unrelated(answer: str) -> bool:
     lower = clean_text(answer).lower()
     return any(signal in lower for signal in IRRELEVANT_ANSWER_SIGNALS)
+
+
+def answer_is_clarification(answer: str) -> bool:
+    lower = clean_text(answer).lower()
+    return any(signal in lower for signal in CLARIFICATION_ANSWER_SIGNALS)
+
+
+def question_allows_task_extraction(question: Optional[str]) -> bool:
+    if question is None:
+        return True
+
+    lower = clean_text(question).lower()
+    if not lower:
+        return True
+
+    if any(signal in lower for signal in SUPPRESSED_QUESTION_SIGNALS):
+        return False
+
+    if not any(term in lower for term in MATTER_WORKFLOW_QUESTION_TERMS):
+        return False
+
+    return True
+
+
+def should_extract_tasks(question: Optional[str], answer: str) -> bool:
+    if not question_allows_task_extraction(question):
+        return False
+    if answer_is_unrelated(answer) or answer_is_clarification(answer):
+        return False
+    return True
 
 
 def has_task_object(text: str) -> bool:
@@ -172,8 +288,8 @@ def add_candidate(candidates: List[str], text: str, *, section_context: bool = F
         candidates.append(candidate)
 
 
-def extract_rule_based_task_candidates(answer: str) -> List[str]:
-    if answer_is_unrelated(answer):
+def extract_rule_based_task_candidates(answer: str, question: Optional[str] = None) -> List[str]:
+    if not should_extract_tasks(question, answer):
         return []
 
     candidates: List[str] = []
@@ -233,18 +349,22 @@ def parse_json_array(raw_text: str) -> List[Any]:
     return parsed if isinstance(parsed, list) else []
 
 
-def extract_model_task_candidates(answer: str, model: Optional[str]) -> List[str]:
-    if not model or answer_is_unrelated(answer):
+def extract_model_task_candidates(answer: str, model: Optional[str], question: Optional[str] = None) -> List[str]:
+    if not model or not should_extract_tasks(question, answer):
         return []
 
     prompt = f"""
-Read this assistant answer and extract concrete workflow tasks.
+Read the user's question and assistant answer. Extract concrete legal/matter workflow tasks only when the user's question is about the selected matter or workflow.
 Return only valid JSON: an array of short task strings.
 
-Extract tasks for records/documents to request, policies to review, people/agencies to contact, statements to draft, timelines to build, or databases to search.
-If missing info is written as a question, convert it into a task. Example: "Is there an employee handbook?" -> "Request employee handbook".
-If the answer says the user's question is unrelated to the matter or no relevant context exists for the question, return [].
-Do not extract plain facts, completed items, symptoms, legal conclusions, or vague advice.
+Rules:
+- If the question is casual, nonsense, a greeting, a current-date question, a creative-writing request, a model/security/secrets question, or otherwise not matter/workflow-related, return [].
+- Extract tasks for records/documents to request, policies to review, people/agencies to contact, statements to draft, timelines to build, or databases to search.
+- If missing info is written as a question, convert it into a task. Example: "Is there an employee handbook?" -> "Request employee handbook".
+- Do not extract plain facts, completed items, symptoms, legal conclusions, clarification options, or vague advice.
+
+Question:
+{question or ""}
 
 Answer:
 {answer}
@@ -270,14 +390,14 @@ Answer:
     return candidates
 
 
-def extract_task_candidates(answer: str, model: Optional[str] = None) -> List[str]:
-    if answer_is_unrelated(answer):
+def extract_task_candidates(answer: str, model: Optional[str] = None, question: Optional[str] = None) -> List[str]:
+    if not should_extract_tasks(question, answer):
         return []
 
     candidates: List[str] = []
-    for candidate in extract_model_task_candidates(answer, model):
+    for candidate in extract_model_task_candidates(answer, model, question=question):
         add_candidate(candidates, candidate, section_context=True)
-    for candidate in extract_rule_based_task_candidates(answer):
+    for candidate in extract_rule_based_task_candidates(answer, question=question):
         add_candidate(candidates, candidate, section_context=True)
     return candidates[:8]
 
@@ -357,15 +477,20 @@ def confidence_from_candidate(candidate: str) -> str:
     return "medium"
 
 
-def build_task_candidate_objects(answer: str, sources: List[Dict[str, object]], model: Optional[str] = None) -> List[Dict[str, object]]:
-    if answer_is_unrelated(answer):
+def build_task_candidate_objects(
+    answer: str,
+    sources: List[Dict[str, object]],
+    model: Optional[str] = None,
+    question: Optional[str] = None,
+) -> List[Dict[str, object]]:
+    if not should_extract_tasks(question, answer):
         return []
 
     source_refs = [source.get("source_id") for source in sources if source.get("source_id")]
     structured: List[Dict[str, object]] = []
     seen_titles = set()
 
-    for candidate in extract_task_candidates(answer, model=model):
+    for candidate in extract_task_candidates(answer, model=model, question=question):
         title = task_title_from_candidate(candidate)
         if title in seen_titles:
             continue
