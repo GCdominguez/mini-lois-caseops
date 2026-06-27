@@ -16,6 +16,10 @@ CONCRETE_TERMS = (
     "witnesses",
     "policy",
     "policies",
+    "procedure",
+    "procedures",
+    "guideline",
+    "guidelines",
     "coverage",
     "communication",
     "communications",
@@ -42,6 +46,19 @@ CONCRETE_TERMS = (
     "complaints",
     "response",
     "responses",
+    "letter",
+    "letters",
+    "agency",
+    "agencies",
+    "database",
+    "databases",
+    "archive",
+    "archives",
+    "source",
+    "sources",
+    "nlrb",
+    "court",
+    "courts",
 )
 
 ACTION_TERMS = (
@@ -54,6 +71,8 @@ ACTION_TERMS = (
     "acquiring",
     "contact",
     "contacting",
+    "reach out",
+    "reaching out",
     "review",
     "reviewing",
     "collect",
@@ -68,6 +87,12 @@ ACTION_TERMS = (
     "preparing",
     "create",
     "creating",
+    "search",
+    "searching",
+    "discuss",
+    "discussing",
+    "inquire",
+    "inquiring",
 )
 
 PENDING_TERMS = (
@@ -84,6 +109,9 @@ PENDING_TERMS = (
     "need to",
     "needs to",
     "still need",
+    "no evidence",
+    "does not have",
+    "not on file",
 )
 
 VAGUE_PHRASES = (
@@ -110,6 +138,9 @@ NEXT_STEP_MARKERS = (
     "next steps are",
     "actionable items include",
     "actionable items are",
+    "we should request",
+    "we should consider reviewing",
+    "we need to know",
     "we still need to",
     "we also need to",
     "we need to",
@@ -129,7 +160,6 @@ def clean_candidate(candidate: str) -> str:
     candidate = candidate.replace("**", "")
     candidate = re.sub(r"\s*\[[Ss]\d+\]", "", candidate)
     candidate = re.sub(r"\s+", " ", candidate)
-    candidate = re.split(r"\s+to\s+", candidate, maxsplit=1)[0]
     candidate = re.sub(r"^(get our hands on|get|the)\s+", "", candidate, flags=re.IGNORECASE)
     return candidate.strip(" -•\t").rstrip(".")
 
@@ -229,7 +259,7 @@ def extract_rule_based_task_candidates(answer: str) -> List[str]:
         for candidate in extract_inline_next_steps(line):
             add_candidate(candidates, candidate, allow_concrete_without_signal=True)
 
-        if lower.endswith(ACTION_LIST_HEADERS) or lower.endswith(("such as:", "including:", "for example:", "request:", "information on:")):
+        if lower.endswith(ACTION_LIST_HEADERS) or lower.endswith(("such as:", "including:", "for example:", "request:", "information on:", "need to know:")):
             capture_following_lines = True
             continue
 
@@ -274,9 +304,9 @@ Return ONLY valid JSON: an array of strings.
 
 Rules:
 - Extract only concrete operational tasks someone could create in a matter record.
-- Include tasks for missing documents, requested-but-not-received items, records to obtain, people to contact, statements to draft, timelines to build, or policies/documents to review.
+- Include tasks for missing documents, requested-but-not-received items, records to obtain, people to contact, statements to draft, timelines to build, policies/documents to review, agencies to contact, or databases to search.
 - Do not extract plain facts, symptoms, background context, completed/uploaded items, legal conclusions, or vague advice.
-- Prefer short task-like wording starting with a verb: Request, Obtain, Acquire, Contact, Draft, Build, Review, Prepare.
+- Prefer short task-like wording starting with a verb: Request, Obtain, Acquire, Contact, Draft, Build, Review, Prepare, Search, Discuss.
 - Do not invent tasks that are not supported by the answer.
 - Return [] if there are no actionable tasks.
 
@@ -326,14 +356,34 @@ def task_title_from_candidate(candidate: str) -> str:
 
     if "employee handbook" in lower:
         return "Request employee handbook"
-    if "performance reviews" in lower or "written warnings" in lower:
+    if "performance reviews" in lower and "written warnings" in lower:
         return "Obtain performance reviews and written warnings"
+    if "performance reviews" in lower or "performance evaluation" in lower or "performance evaluations" in lower:
+        return "Obtain performance reviews"
+    if "written warnings" in lower or "disciplinary action" in lower or "disciplinary actions" in lower:
+        return "Obtain written warnings and disciplinary records"
     if "payroll" in lower or "paycheck" in lower:
         return "Acquire payroll records"
     if "coworker statement" in lower or "statement outline" in lower:
         return "Draft coworker statement outline"
     if "timeline" in lower and ("complaint" in lower or "supervisor" in lower):
         return "Build timeline of complaints and supervisor responses"
+    if "termination letter" in lower:
+        return "Review termination letter"
+    if "supervisor responses" in lower or "supervisor response" in lower:
+        return "Review supervisor responses"
+    if "workplace safety" in lower and ("policy" in lower or "policies" in lower):
+        return "Review workplace safety reporting policy"
+    if "retaliation" in lower and ("policy" in lower or "policies" in lower):
+        return "Review anti-retaliation policy"
+    if "previous incidents" in lower or "prior incidents" in lower or "complaints related" in lower or "similar safety concerns" in lower:
+        return "Review prior safety incidents and complaints"
+    if "nlrb" in lower or "state/local employment" in lower or "employment agencies" in lower:
+        return "Contact NLRB or employment agency"
+    if "online databases" in lower or "news archives" in lower or "court records" in lower:
+        return "Search databases and court records"
+    if "dana cruz" in lower or "lead attorney" in lower:
+        return "Discuss potential sources with lead attorney"
     if "police report" in lower:
         return "Request police report"
     if "urgent care records" in lower or "urgent care record" in lower:
@@ -356,14 +406,13 @@ def task_title_from_candidate(candidate: str) -> str:
         return "Review regulatory compliance documents"
     if "company polic" in lower or "company handbook" in lower:
         return "Review company policies and procedures"
-    if "previous incidents" in lower or "complaints related" in lower:
-        return "Review prior safety incidents and complaints"
 
     gerunds = {
         "requesting ": "Request ",
         "obtaining ": "Obtain ",
         "acquiring ": "Acquire ",
         "contacting ": "Contact ",
+        "reaching out ": "Contact ",
         "reviewing ": "Review ",
         "collecting ": "Collect ",
         "following up on ": "Follow up on ",
@@ -371,12 +420,15 @@ def task_title_from_candidate(candidate: str) -> str:
         "building ": "Build ",
         "preparing ": "Prepare ",
         "creating ": "Create ",
+        "searching ": "Search ",
+        "discussing ": "Discuss ",
+        "inquiring ": "Inquire ",
     }
     for prefix, replacement in gerunds.items():
         if lower.startswith(prefix):
             return replacement + text[len(prefix) :]
     if lower.startswith(ACTION_TERMS):
-        return text
+        return text[:1].upper() + text[1:]
     return f"Review {text[:1].lower()}{text[1:]}"
 
 
@@ -385,7 +437,7 @@ def reason_from_candidate(candidate: str) -> str:
     lower = cleaned.lower()
     if "not received" in lower or "not yet received" in lower or "has not been received" in lower:
         return "The matter context indicates this item has not been received."
-    if "incomplete" in lower or "not available" in lower or "missing" in lower or "never received" in lower:
+    if "incomplete" in lower or "not available" in lower or "missing" in lower or "never received" in lower or "no evidence" in lower or "not on file" in lower:
         return "The matter context indicates this information is missing or incomplete."
     if "witness" in lower:
         return "The matter context identifies an available witness who may need follow-up."
@@ -394,7 +446,7 @@ def reason_from_candidate(candidate: str) -> str:
 
 def confidence_from_candidate(candidate: str) -> str:
     lower = candidate.lower()
-    if any(term in lower for term in ("not received", "not yet received", "missing", "incomplete", "not available", "never received")):
+    if any(term in lower for term in ("not received", "not yet received", "missing", "incomplete", "not available", "never received", "no evidence", "not on file")):
         return "high"
     if lower.startswith(ACTION_TERMS):
         return "high"
