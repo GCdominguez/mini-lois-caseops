@@ -48,7 +48,30 @@ curl -X POST http://127.0.0.1:8000/matters/MAT-1001/ask \
   -d '{"question":"What are the missing next steps?"}'
 ```
 
-The response includes the answer, retrieved sources, and task candidates extracted from the answer.
+The response includes the answer, retrieved sources, and structured task candidates extracted from the answer.
+
+```json
+{
+  "task_candidates": [
+    {
+      "title": "Request urgent care records",
+      "action_type": "create_task",
+      "reason": "Candidate extracted from matter answer: urgent care records.",
+      "confidence": "medium",
+      "source_refs": ["S1", "S2", "S3"],
+      "original_text": "urgent care records"
+    },
+    {
+      "title": "Request PT records after April 19",
+      "action_type": "create_task",
+      "reason": "The matter context indicates this information is missing or incomplete.",
+      "confidence": "high",
+      "source_refs": ["S1", "S2", "S3"],
+      "original_text": "physical therapy records after April 19 are missing"
+    }
+  ]
+}
+```
 
 ## Example: propose an action
 
@@ -85,6 +108,7 @@ This writes to the SQLite matter record and audit log.
 This API shows the product design of an AI tool platform:
 
 - retrieval endpoint for matter-aware answers
+- structured candidate endpoint inside the ask response
 - proposal endpoint for structured action planning
 - approval endpoint for safe write-back
 - record endpoints for system-of-record state
