@@ -6,7 +6,7 @@ This is a portfolio project, not legal software and not legal advice. It is not 
 
 ## Current version
 
-v0.5 adds a FastAPI layer, structured task candidate objects, API documentation, and PM artifacts for backlog management, beta feedback synthesis, acceptance testing, launch readiness, and tool-contract design.
+v0.7 adds API Platform hardening: `/v1` routes, idempotency for approval write-backs, pagination/filtering, a fake DataBridge import endpoint, and an API contract document.
 
 ## Screenshots
 
@@ -25,11 +25,20 @@ The demo flow is documented in [`docs/screenshots`](docs/screenshots/README.md).
 - Validation warnings for risky operational fields such as unsupported due dates or non-matter assignees.
 - SQLite-backed mock matter record.
 - Audit log of executed AI-assisted actions, including human-edited approvals.
+- Webhook-style event records for approved write-backs, such as `task.created`.
 - FastAPI endpoints that expose the assistant as tool-style operations.
-- PM documentation for product specs, backlog, acceptance criteria, beta feedback, and launch readiness.
+- Fake API-key authentication for local API testing.
+- Structured API errors for auth, validation, missing resources, idempotency conflicts, and unsupported actions.
+- Versioned `/v1` API routes.
+- Idempotency protection for approval write-backs.
+- Pagination and filtering for tasks, audit records, and webhook events.
+- Fake DataBridge-style matter import with external ID mapping.
+- PM documentation for product specs, backlog, acceptance criteria, beta feedback, launch readiness, and API contracts.
 
 ## API and PM artifacts
 
+- [`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md) — v0.7 curl examples for auth, structured errors, ask, approve, idempotency, audit, webhook events, pagination, and DataBridge import.
+- [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) — stable API shapes for errors, matters, task candidates, approved actions, webhook events, pagination, and DataBridge import.
 - [`docs/api.md`](docs/api.md) — API usage, endpoint examples, and structured task candidate response.
 - [`docs/product-spec.md`](docs/product-spec.md) — product spec for the AI-assisted matter action workflow.
 - [`docs/backlog.md`](docs/backlog.md) — Jira-style backlog issues with acceptance criteria.
@@ -47,7 +56,7 @@ flowchart LR
     B --> C[Ollama Embeddings]
     C --> D[Chroma Vector DB]
     E[Streamlit UI] --> F[Matter Scope]
-    API[FastAPI Layer] --> F
+    API[FastAPI /v1 Layer] --> F
     F --> D
     D --> G[Retrieved Context]
     G --> H[Ollama Chat Model]
@@ -59,6 +68,9 @@ flowchart LR
     K --> L
     L --> M[SQLite Matter Store]
     M --> N[Audit Log]
+    M --> W[Webhook Event Log]
+    X[External System] --> DBI[DataBridge Import]
+    DBI --> M
 ```
 
 ## Tech stack
@@ -119,6 +131,14 @@ Open Swagger UI:
 http://127.0.0.1:8000/docs
 ```
 
+Protected endpoints use the local demo key unless overridden with `MINI_LOIS_API_KEY`:
+
+```text
+X-API-Key: demo-key
+```
+
+Preferred API routes use `/v1`.
+
 ## Suggested demo script
 
 1. Select `MAT-1001 · Johnson v. RideshareCo`.
@@ -131,19 +151,21 @@ http://127.0.0.1:8000/docs
 8. Edit the title, due date, assignee, or reason if needed.
 9. Approve the edited action.
 10. Check `Matter Record` and `Audit Log`.
-11. Open Swagger UI and test `/matters/MAT-1001/ask`, `/actions/propose`, and `/actions/approve`.
+11. Open Swagger UI and test `/v1/matters/MAT-1001/ask`, `/v1/actions/approve`, `/v1/matters/MAT-1001/tasks`, and `/v1/matters/MAT-1001/webhook-events`.
+12. Use [`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md) to test auth failures, 404 errors, idempotent write-backs, pagination/filtering, audit, webhook events, and DataBridge import.
 
 ## Product notes
 
 The important design choice is the approval workflow. The assistant can propose actions, but it cannot silently mutate matter data. This mirrors the product problem in legal AI: generated actions need user control, source grounding, validation, and auditability.
 
-The API layer reframes the prototype from a UI demo into a platform contract. `/ask` can return human-readable answers and structured task candidates. `/actions/propose` can plan a mutation. `/actions/approve` is the write-back boundary. `/audit` provides traceability.
+The API layer reframes the prototype from a UI demo into a platform contract. `/v1/ask` can return human-readable answers and structured task candidates. `/v1/actions/propose` can plan a mutation. `/v1/actions/approve` is the write-back boundary. `/v1/audit` provides traceability. `/v1/webhook-events` simulates downstream integration events. `/v1/databridge/import` simulates partner data ingestion.
 
 Potential next features:
 
 - Stronger validation with Pydantic schemas.
 - Field-level source citations for action proposals.
 - User roles and permission filters.
-- Workflow triggers such as `new_document_uploaded` or `matter_phase_changed`.
+- Webhook signature verification.
+- Request logs and API usage metrics.
 - Automated acceptance tests.
 - MCP server wrapper around the local matter tools.
