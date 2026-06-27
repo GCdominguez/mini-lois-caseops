@@ -146,8 +146,17 @@ def is_vague_candidate(candidate: str) -> bool:
     return any(phrase in lower for phrase in VAGUE_PHRASES)
 
 
-def add_candidate(candidates: List[str], candidate: str, *, allow_concrete_without_signal: bool = False) -> None:
+def normalize_task_candidate(candidate: str) -> str:
     candidate = clean_candidate(candidate)
+    if ":" in candidate:
+        prefix = clean_candidate(candidate.split(":", 1)[0])
+        if has_action_signal(prefix) and contains_concrete_task_object(prefix):
+            return prefix
+    return candidate
+
+
+def add_candidate(candidates: List[str], candidate: str, *, allow_concrete_without_signal: bool = False) -> None:
+    candidate = normalize_task_candidate(candidate)
     lower = candidate.lower()
     if len(candidate) < 8 or len(candidate) > 220:
         return
@@ -233,13 +242,8 @@ def extract_task_candidates(answer: str) -> List[str]:
 
 
 def task_title_from_candidate(candidate: str) -> str:
-    text = clean_candidate(candidate)
+    text = normalize_task_candidate(candidate)
     lower = text.lower()
-
-    if ":" in text:
-        before_colon = clean_candidate(text.split(":", 1)[0])
-        if has_action_signal(before_colon) and contains_concrete_task_object(before_colon):
-            return before_colon
 
     if "employee handbook" in lower:
         return "Request employee handbook"
@@ -296,7 +300,7 @@ def task_title_from_candidate(candidate: str) -> str:
 
 
 def reason_from_candidate(candidate: str) -> str:
-    cleaned = clean_candidate(candidate)
+    cleaned = normalize_task_candidate(candidate)
     lower = cleaned.lower()
     if "not received" in lower or "not yet received" in lower or "has not been received" in lower:
         return "The matter context indicates this item has not been received."
@@ -333,7 +337,7 @@ def build_task_candidate_objects(answer: str, sources: List[Dict[str, object]]) 
                 "reason": reason_from_candidate(candidate),
                 "confidence": confidence_from_candidate(candidate),
                 "source_refs": source_refs,
-                "original_text": clean_candidate(candidate),
+                "original_text": normalize_task_candidate(candidate),
             }
         )
 
