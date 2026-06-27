@@ -10,7 +10,7 @@ from matter_store import execute_action, get_audit_log, get_matter, get_matters,
 from rag import DEFAULT_LLM_MODEL, answer_question
 from task_extractor import build_task_candidate_objects
 
-app = FastAPI(title="Mini LOIS CaseOps API", version="0.5.2")
+app = FastAPI(title="Mini LOIS CaseOps API", version="0.5.3")
 init_database()
 
 
@@ -66,7 +66,7 @@ def ask_matter(matter_id: str, payload: AskRequest) -> Dict[str, Any]:
         "question": payload.question,
         "answer": answer,
         "sources": sources,
-        "task_candidates": build_task_candidate_objects(answer, sources),
+        "task_candidates": build_task_candidate_objects(answer, sources, model=payload.model),
     }
 
 
