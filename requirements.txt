@@ -3,3 +3,4 @@ ollama
 chromadb
 fastapi
 uvicorn
+httpx

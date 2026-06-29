@@ -57,7 +57,7 @@ AI can propose, but mutation requires approval. This is especially important in 
 
 **Product decision**
 
-Separate proposal generation from action approval. Keep `/actions/propose` read-only and route all mutation through `/actions/approve`.
+Separate proposal generation from action approval. Keep `/v1/matters/{matter_id}/actions/propose` read-only and route all mutation through `/v1/actions/approve`.
 
 **Resulting backlog items**
 
@@ -78,7 +78,7 @@ The API should expose structured candidates, not just chat output. The API contr
 
 **Product decision**
 
-Return structured `task_candidates` from `/ask`.
+Return structured `task_candidates` from `/v1/matters/{matter_id}/ask`.
 
 **Resulting backlog items**
 

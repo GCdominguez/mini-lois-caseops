@@ -6,7 +6,7 @@ This is a portfolio project, not legal software and not legal advice. It is not 
 
 ## Current version
 
-v0.7 adds API Platform hardening: `/v1` routes, idempotency for approval write-backs, pagination/filtering, a fake DataBridge import endpoint, and an API contract document.
+v0.8 hardens the live-demo path: API startup compatibility, stricter approved-action validation, safer idempotent write-back, smoke tests, and a reset helper for clean rehearsals.
 
 ## Screenshots
 
@@ -33,11 +33,13 @@ The demo flow is documented in [`docs/screenshots`](docs/screenshots/README.md).
 - Idempotency protection for approval write-backs.
 - Pagination and filtering for tasks, audit records, and webhook events.
 - Fake DataBridge-style matter import with external ID mapping.
+- v0.8 smoke tests for auth, health, approved write-back, idempotency, webhook events, and DataBridge import.
+- Demo reset helper for returning the local SQLite store to a clean state.
 - PM documentation for product specs, backlog, acceptance criteria, beta feedback, launch readiness, and API contracts.
 
 ## API and PM artifacts
 
-- [`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md) — v0.7 curl examples for auth, structured errors, ask, approve, idempotency, audit, webhook events, pagination, and DataBridge import.
+- [`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md) — v0.8 curl examples for auth, structured errors, ask, approve, idempotency, audit, webhook events, pagination, validation, and DataBridge import.
 - [`docs/API_CONTRACT.md`](docs/API_CONTRACT.md) — stable API shapes for errors, matters, task candidates, approved actions, webhook events, pagination, and DataBridge import.
 - [`docs/api.md`](docs/api.md) — API usage, endpoint examples, and structured task candidate response.
 - [`docs/product-spec.md`](docs/product-spec.md) — product spec for the AI-assisted matter action workflow.
@@ -107,10 +109,23 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+Before a live demo, confirm the API can import in the active environment.
+
+```bash
+python -c "import api_server; print(api_server.health())"
+```
+
 Ingest the fake matter documents into Chroma.
 
 ```bash
 python3 ingest.py
+```
+
+Optional: reset local write-back state before rehearsing. This removes generated SQLite data so task IDs, audit rows, and webhook rows start clean. Add `--include-chroma` only if you also want to rebuild retrieval.
+
+```bash
+python scripts/demo_reset.py
+python ingest.py
 ```
 
 Run the Streamlit app.
@@ -123,6 +138,12 @@ Run the API server.
 
 ```bash
 uvicorn api_server:app --reload
+```
+
+Run smoke tests for the v0.8 API platform flow.
+
+```bash
+python -m unittest tests.test_api_v08
 ```
 
 Open Swagger UI:
@@ -151,21 +172,19 @@ Preferred API routes use `/v1`.
 8. Edit the title, due date, assignee, or reason if needed.
 9. Approve the edited action.
 10. Check `Matter Record` and `Audit Log`.
-11. Open Swagger UI and test `/v1/matters/MAT-1001/ask`, `/v1/actions/approve`, `/v1/matters/MAT-1001/tasks`, and `/v1/matters/MAT-1001/webhook-events`.
+11. Open Swagger UI and test `/v1/health`, `/v1/matters`, `/v1/matters/MAT-1001/ask`, `/v1/actions/approve`, `/v1/matters/MAT-1001/tasks`, `/v1/matters/MAT-1001/webhook-events`, and `/v1/databridge/import`.
 12. Use [`docs/API_EXAMPLES.md`](docs/API_EXAMPLES.md) to test auth failures, 404 errors, idempotent write-backs, pagination/filtering, audit, webhook events, and DataBridge import.
 
 ## Product notes
 
 The important design choice is the approval workflow. The assistant can propose actions, but it cannot silently mutate matter data. This mirrors the product problem in legal AI: generated actions need user control, source grounding, validation, and auditability.
 
-The API layer reframes the prototype from a UI demo into a platform contract. `/v1/ask` can return human-readable answers and structured task candidates. `/v1/actions/propose` can plan a mutation. `/v1/actions/approve` is the write-back boundary. `/v1/audit` provides traceability. `/v1/webhook-events` simulates downstream integration events. `/v1/databridge/import` simulates partner data ingestion.
+The API layer reframes the prototype from a UI demo into a platform contract. `/v1/matters/{matter_id}/ask` can return human-readable answers and structured task candidates. `/v1/matters/{matter_id}/actions/propose` can plan a mutation. `/v1/actions/approve` is the write-back boundary. `/v1/matters/{matter_id}/audit` provides traceability. `/v1/matters/{matter_id}/webhook-events` simulates downstream integration events. `/v1/databridge/import` simulates partner data ingestion.
 
 Potential next features:
 
-- Stronger validation with Pydantic schemas.
 - Field-level source citations for action proposals.
 - User roles and permission filters.
 - Webhook signature verification.
 - Request logs and API usage metrics.
-- Automated acceptance tests.
 - MCP server wrapper around the local matter tools.

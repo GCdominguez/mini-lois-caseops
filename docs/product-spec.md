@@ -68,7 +68,7 @@ The product problem is to determine when AI output should remain informational a
 
 ### Ask matter
 
-`POST /matters/{matter_id}/ask`
+`POST /v1/matters/{matter_id}/ask`
 
 Returns:
 
@@ -93,13 +93,13 @@ Task candidate object:
 
 ### Propose action
 
-`POST /matters/{matter_id}/actions/propose`
+`POST /v1/matters/{matter_id}/actions/propose`
 
 Returns an AI-generated structured action proposal and source references. The proposal is not executed.
 
 ### Approve action
 
-`POST /actions/approve`
+`POST /v1/actions/approve`
 
 Executes an approved action and writes to the matter record and audit log.
 
@@ -114,11 +114,11 @@ Executes an approved action and writes to the matter record and audit log.
 
 ## Acceptance criteria
 
-- Given a valid matter ID and question, `/ask` returns an answer and sources.
-- Given an invalid matter ID, `/ask` returns 404.
+- Given a valid matter ID and question, `/v1/matters/{matter_id}/ask` returns an answer and sources.
+- Given an invalid matter ID, `/v1/matters/{matter_id}/ask` returns 404.
 - Given an answer with explicit next steps, task_candidates returns structured objects.
 - Given an answer containing only factual bullets, task_candidates returns no tasks.
-- Given an approved create_task action, `/actions/approve` writes the task to the matter record.
+- Given an approved create_task action, `/v1/actions/approve` writes the task to the matter record.
 - Given an approved action, the audit log stores the payload and source refs.
 - Given a proposed action, no write occurs until approval.
 

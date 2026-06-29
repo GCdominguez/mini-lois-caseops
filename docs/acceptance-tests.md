@@ -1,50 +1,58 @@
 # Acceptance Tests
 
-These tests define expected behavior for the AI-assisted matter action workflow and API layer.
+These tests define expected behavior for the AI-assisted matter action workflow and API layer. v0.8 includes automated smoke coverage in `tests/test_api_v08.py`; the cases below remain useful as manual demo checks.
 
-## Test group 1: Matter API basics
+## Test group 1: API startup and auth
 
-### Test 1.1: Health check
+### Test 1.1: API import check
+
+**Given** the virtual environment is active
+
+**When** `python -c "import api_server; print(api_server.health())"` is run
+
+**Then** the command succeeds
+
+**And** the output includes:
+
+```json
+{"status": "ok", "version": "0.8.0"}
+```
+
+### Test 1.2: Health check
 
 **Given** the API server is running
 
-**When** `GET /health` is called
+**When** `GET /v1/health` is called
 
 **Then** the response is 200
 
-**And** the body is:
+**And** the body includes `status` and `version`.
 
-```json
-{"status": "ok"}
-```
+### Test 1.3: Protected endpoints require API key
 
-### Test 1.2: List matters
+**When** `GET /v1/matters` is called without `X-API-Key`
 
-**Given** the local matter store contains demo matters
+**Then** the response is 401
 
-**When** `GET /matters` is called
+**And** the error code is `unauthorized`.
+
+### Test 1.4: List matters
+
+**When** `GET /v1/matters` is called with `X-API-Key: demo-key`
 
 **Then** the response is 200
 
 **And** the response includes `MAT-1001`.
 
-### Test 1.3: Invalid matter ID
-
-**Given** `MAT-9999` does not exist
-
-**When** `GET /matters/MAT-9999` is called
-
-**Then** the response is 404
-
-**And** the error says `Matter not found`.
-
 ## Test group 2: Ask Matter API
 
 ### Test 2.1: Ask valid matter question
 
-**Given** Chroma has indexed the fake matter documents
+**Given** Ollama is running
 
-**When** `POST /matters/MAT-1001/ask` is called with:
+**And** Chroma has indexed the fake matter documents
+
+**When** `POST /v1/matters/MAT-1001/ask` is called with:
 
 ```json
 {
@@ -59,101 +67,23 @@ These tests define expected behavior for the AI-assisted matter action workflow 
 
 ### Test 2.2: Missing request field
 
-**Given** the API expects `question`
-
-**When** `/ask` is called with `request` instead of `question`
+**When** `/v1/matters/MAT-1001/ask` is called with `request` instead of `question`
 
 **Then** the response is 422
 
-**And** the error points to the missing `question` field.
+**And** the error code is `validation_error`.
 
 ### Test 2.3: Invalid matter for ask
 
-**Given** `MAT-9999` does not exist
-
-**When** `POST /matters/MAT-9999/ask` is called
+**When** `POST /v1/matters/MAT-9999/ask` is called
 
 **Then** the response is 404
 
-**And** no retrieval or model call should execute.
+**And** the error code is `matter_not_found`.
 
-## Test group 3: Task candidate quality
+## Test group 3: Approval and write-back
 
-### Test 3.1: Explicit missing record becomes task
-
-**Given** the answer states `Police report requested but not yet received`
-
-**When** task candidates are extracted
-
-**Then** the candidate list includes:
-
-```json
-{
-  "title": "Request police report",
-  "action_type": "create_task"
-}
-```
-
-### Test 3.2: Factual medical symptom does not become task
-
-**Given** the answer states `She reports neck pain, lower back pain, and headaches`
-
-**When** task candidates are extracted
-
-**Then** no task candidate is created from that fact.
-
-### Test 3.3: Uploaded evidence does not become task
-
-**Given** the answer states `Rideshare trip receipt uploaded by client`
-
-**When** task candidates are extracted
-
-**Then** no task candidate is created because the item is already complete.
-
-### Test 3.4: Available witness becomes task only when contact is implied
-
-**Given** the answer states `contacting the available witness`
-
-**When** task candidates are extracted
-
-**Then** the candidate list includes `Contact available witness`.
-
-### Test 3.5: Candidate objects include required fields
-
-**Given** `/ask` returns task candidates
-
-**Then** each task candidate includes:
-
-- title
-- action_type
-- reason
-- confidence
-- source_refs
-- original_text
-
-## Test group 4: Action proposal
-
-### Test 4.1: Propose action does not mutate record
-
-**Given** an action proposal request
-
-**When** `POST /matters/MAT-1001/actions/propose` is called
-
-**Then** a proposed action is returned
-
-**And** no new task is written to the matter record.
-
-### Test 4.2: Proposed action includes approval flag
-
-**Given** an action proposal request
-
-**When** a proposal is returned
-
-**Then** `requires_approval` is true.
-
-## Test group 5: Approval and write-back
-
-### Test 5.1: Approve create_task action
+### Test 3.1: Approve create_task action with idempotency
 
 **Given** a valid approved action payload:
 
@@ -171,52 +101,83 @@ These tests define expected behavior for the AI-assisted matter action workflow 
 }
 ```
 
-**When** `POST /actions/approve` is called
+**When** `POST /v1/actions/approve` is called with `Idempotency-Key`
 
 **Then** the response is 200
 
-**And** the task appears under `GET /matters/MAT-1001/tasks`.
+**And** the task appears under `GET /v1/matters/MAT-1001/tasks`.
 
-### Test 5.2: Audit log records approved action
+**And** a `task.created` event appears under `GET /v1/matters/MAT-1001/webhook-events`.
 
-**Given** an approved task has been created
+### Test 3.2: Idempotency replay does not duplicate writes
 
-**When** `GET /matters/MAT-1001/audit` is called
+**When** the same approval request is sent again with the same `Idempotency-Key`
 
-**Then** the audit log includes the approved action payload and source_refs.
+**Then** the response includes `"replayed": true`
 
-### Test 5.3: Invalid matter approval fails
+**And** only one matching task exists.
 
-**Given** an approved action payload references `MAT-9999`
+### Test 3.3: Idempotency conflict
 
-**When** `POST /actions/approve` is called
+**When** the same `Idempotency-Key` is reused with a different request body
 
-**Then** the response is 404
+**Then** the response is 409
 
-**And** no task is written.
+**And** the error code is `idempotency_conflict`.
 
-## Test group 6: Launch readiness checks
+### Test 3.4: Invalid approved action fails before database write
 
-### Test 6.1: Swagger UI loads
+**When** `POST /v1/actions/approve` is called for `create_task` without `title`
 
-**Given** the API server is running
+**Then** the response is 400
 
-**When** `http://127.0.0.1:8000/docs` is opened
+**And** the error code is `action_validation_error`.
 
-**Then** Swagger UI displays all endpoints.
+### Test 3.5: Invalid calendar date fails before database write
 
-### Test 6.2: README and API docs are current
+**When** `POST /v1/actions/approve` is called for `create_calendar_event` with `event_date: "tomorrow"`
 
-**Given** the repo has shipped a new API behavior
+**Then** the response is 400
 
-**When** docs are reviewed
+**And** the error code is `action_validation_error`.
 
-**Then** `docs/api.md` describes structured task candidate objects.
+## Test group 4: Pagination, filtering, and DataBridge
+
+### Test 4.1: Tasks support status filtering and pagination
+
+**When** `GET /v1/matters/MAT-1001/tasks?status=Open&limit=10&offset=0` is called
+
+**Then** the response is 200
+
+**And** only matching task rows are returned.
+
+### Test 4.2: Webhook events support matter-scoped filtering
+
+**When** `GET /v1/matters/MAT-1001/webhook-events?event_type=task.created&delivery_status=queued` is called
+
+**Then** the response is 200
+
+**And** each event payload includes `matter_id`, `resource_type`, `resource_id`, and `source_refs`.
+
+### Test 4.3: DataBridge import creates and updates one mapped matter
+
+**When** `POST /v1/databridge/import` is called with `external_system` and `external_case_id`
+
+**Then** the first response has `status: created`
+
+**And** a second call with the same external identifiers has `status: updated`.
+
+## Automated smoke check
+
+Run:
+
+```bash
+python -m unittest tests.test_api_v08
+```
 
 ## Known limitations
 
-- Tests are documented as acceptance cases, not yet automated.
-- API auth is not implemented.
+- Full RAG answer quality still depends on local Ollama and the selected model.
 - Source refs are chunk-level, not paragraph-level.
 - Confidence is rule-based, not calibrated from model evaluation.
 - Write-back is local SQLite only.

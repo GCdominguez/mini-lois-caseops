@@ -28,7 +28,7 @@ Answer a matter-scoped question and return sources and structured task candidate
 
 **API mapping**
 
-`POST /matters/{matter_id}/ask`
+`POST /v1/matters/{matter_id}/ask`
 
 **Input**
 
@@ -62,7 +62,7 @@ Convert a user request into a structured action proposal.
 
 **API mapping**
 
-`POST /matters/{matter_id}/actions/propose`
+`POST /v1/matters/{matter_id}/actions/propose`
 
 **Input**
 
@@ -99,7 +99,7 @@ Write an approved action to the matter record.
 
 **API mapping**
 
-`POST /actions/approve`
+`POST /v1/actions/approve`
 
 **Input**
 
@@ -139,7 +139,7 @@ Return approved actions and source references for a matter.
 
 **API mapping**
 
-`GET /matters/{matter_id}/audit`
+`GET /v1/matters/{matter_id}/audit`
 
 **Mutation risk**: none
 
@@ -173,7 +173,7 @@ A production version would add:
 - OAuth and user identity
 - role-based access checks
 - tenant and matter permission boundaries
-- idempotency keys
+- broader idempotency coverage across all mutation endpoints
 - schema versioning
 - webhook/event delivery
 - rate limits

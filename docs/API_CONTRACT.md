@@ -1,6 +1,6 @@
 # API Contract
 
-This document describes the stable API shapes used by Mini LOIS v0.7. It is intentionally small, but it treats the API as a product surface for another developer or partner integration.
+This document describes the stable API shapes used by Mini LOIS v0.8. It is intentionally small, but it treats the API as a product surface for another developer or partner integration.
 
 ## Versioning
 
@@ -10,6 +10,7 @@ Preferred routes use `/v1`.
 /v1/matters
 /v1/matters/{matter_id}/ask
 /v1/actions/approve
+/v1/matters/{matter_id}/webhook-events
 /v1/databridge/import
 ```
 
@@ -67,6 +68,7 @@ validation_error
 matter_not_found
 missing_matter_id
 unsupported_action
+action_validation_error
 idempotency_conflict
 import_validation_error
 ```
@@ -168,6 +170,15 @@ add_note
 create_calendar_event
 ```
 
+Validation rules:
+
+- `create_task` requires `title`.
+- `add_note` requires `note_text`.
+- `create_calendar_event` requires `title` and `event_date`.
+- Date fields must use `YYYY-MM-DD`.
+- Invalid action fields return `400 action_validation_error`.
+- Unknown action types return `400 unsupported_action`.
+
 ## ApproveAction request
 
 ```json
@@ -191,13 +202,13 @@ create_calendar_event
 
 ## Idempotency
 
-Mutation endpoints should support idempotency. v0.7 supports it for `/v1/actions/approve`.
+Mutation endpoints should support idempotency. v0.8 supports it for `/v1/actions/approve`.
 
 ```text
 Idempotency-Key: approve-MAT-1001-pt-records-001
 ```
 
-If the same request is sent twice with the same key, the API returns the first result instead of creating a duplicate task.
+If the same request is sent twice with the same key, the API returns the first result instead of creating a duplicate task. v0.8 stores the idempotency record in the same SQLite transaction as the approved write-back.
 
 If the same key is reused with a different request body, the API returns `409 idempotency_conflict`.
 
@@ -264,6 +275,7 @@ List endpoints support `limit` and `offset`.
 GET /v1/matters/MAT-1001/tasks?status=Open&limit=25&offset=0
 GET /v1/matters/MAT-1001/audit?limit=25&offset=0
 GET /v1/webhook-events?event_type=task.created&delivery_status=queued&limit=25&offset=0
+GET /v1/matters/MAT-1001/webhook-events?event_type=task.created&delivery_status=queued&limit=25&offset=0
 ```
 
 Rules:

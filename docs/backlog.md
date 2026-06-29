@@ -21,7 +21,7 @@ As an integrator, I want task candidates returned as structured objects so that 
 
 **Acceptance criteria**
 
-- `/matters/MAT-1001/ask` returns task_candidates as objects, not strings.
+- `/v1/matters/MAT-1001/ask` returns task_candidates as objects, not strings.
 - Each candidate has all required fields.
 - Duplicate candidates are collapsed.
 - Existing answer and sources fields remain unchanged.
@@ -40,7 +40,7 @@ As a legal operations admin, I want AI-generated actions to require approval bef
 
 **Requirements**
 
-- Add `POST /actions/approve`.
+- Add `POST /v1/actions/approve`.
 - Accept an approved action payload.
 - Write supported actions to the local matter record.
 - Store original proposal when available.
@@ -125,8 +125,8 @@ As an attorney, I want task candidates linked to source references so I can vali
 
 **Acceptance criteria**
 
-- `/ask` candidate objects include source_refs.
-- `/actions/approve` accepts source_refs.
+- `/v1/matters/{matter_id}/ask` candidate objects include source_refs.
+- `/v1/actions/approve` accepts source_refs.
 - Audit log stores source_refs.
 
 **Priority**: P1
@@ -148,10 +148,10 @@ As an API consumer, I want invalid matter IDs to return a clear 404 so I can han
 
 **Acceptance criteria**
 
-- `/matters/MAT-9999` returns 404.
-- `/matters/MAT-9999/ask` returns 404.
-- `/matters/MAT-9999/actions/propose` returns 404.
-- `/matters/MAT-9999/audit` returns 404.
+- `/v1/matters/MAT-9999` returns 404.
+- `/v1/matters/MAT-9999/ask` returns 404.
+- `/v1/matters/MAT-9999/actions/propose` returns 404.
+- `/v1/matters/MAT-9999/audit` returns 404.
 
 **Priority**: P1
 

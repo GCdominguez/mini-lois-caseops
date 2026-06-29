@@ -2,11 +2,15 @@
 
 These examples show the Mini LOIS API as a small API-platform surface: versioned endpoints, authenticated requests, structured errors, AI-generated task candidates, approval-gated write-back, idempotency, audit logs, webhook-style event records, pagination/filtering, and a fake DataBridge import.
 
+v0.8 adds safer approved-action validation, a transactional idempotency path for approvals, smoke tests, and a demo reset helper.
+
 The local demo API key is `demo-key` unless you override it with `MINI_LOIS_API_KEY`.
 
 ## Run the API server
 
 ```bash
+source .venv/bin/activate
+python -c "import api_server; print(api_server.health())"
 uvicorn api_server:app --reload
 ```
 
@@ -29,7 +33,7 @@ Expected response:
 ```json
 {
   "status": "ok",
-  "version": "0.7.0"
+  "version": "0.8.0"
 }
 ```
 
@@ -192,6 +196,37 @@ Run the same request again with the same `Idempotency-Key`. The API should retur
 
 That means the second request did not create a duplicate task.
 
+## Validation error for an unsafe write-back
+
+This shows that the API rejects malformed approved actions before they reach SQLite.
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/v1/actions/approve \
+  -H "X-API-Key: demo-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "approved_action": {
+      "action_type": "create_task",
+      "matter_id": "MAT-1001"
+    }
+  }' \
+  | python3 -m json.tool
+```
+
+Expected shape:
+
+```json
+{
+  "error": "action_validation_error",
+  "message": "approved_action.title is required for create_task.",
+  "request_id": "...",
+  "details": {
+    "field": "title",
+    "action_type": "create_task"
+  }
+}
+```
+
 ## Confirm the task was written back with filtering and pagination
 
 ```bash
@@ -287,6 +322,16 @@ Expected shape:
 ```
 
 Run it again with the same `external_system` and `external_case_id`, and it updates the same mapped matter instead of creating a new one.
+
+## v0.8 smoke tests and demo reset
+
+```bash
+python -m unittest tests.test_api_v08
+python scripts/demo_reset.py
+python ingest.py
+```
+
+Use `python scripts/demo_reset.py --include-chroma` only when you want to rebuild the retrieval index too.
 
 ## Why this matters for API Platform PM work
 

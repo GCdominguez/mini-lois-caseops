@@ -4,11 +4,11 @@ This checklist models the cross-functional readiness work needed to ship an AI-a
 
 ## Feature
 
-AI-assisted matter action workflow with structured task candidates, approval-gated write-back, API documentation, and audit log.
+AI-assisted matter action workflow with structured task candidates, approval-gated write-back, API documentation, audit log, webhook-style events, and v0.8 smoke coverage.
 
 ## Release summary
 
-The release allows users and API consumers to ask matter-scoped questions, receive source-grounded answers, review structured task candidates, approve actions, and verify write-back through an audit log.
+The release allows users and API consumers to ask matter-scoped questions, receive source-grounded answers, review structured task candidates, approve actions, avoid duplicate writes with idempotency, and verify write-back through an audit log and webhook-style events.
 
 ## Customer value
 
@@ -31,27 +31,27 @@ The release allows users and API consumers to ask matter-scoped questions, recei
 ### Engineering
 
 - [x] API server runs locally with Swagger UI.
-- [x] `/ask` returns structured task candidates.
-- [x] `/actions/propose` returns proposal without write-back.
-- [x] `/actions/approve` writes approved action to local store.
-- [x] `/audit` returns approved actions.
-- [ ] Automated tests added.
+- [x] `/v1/matters/{matter_id}/ask` returns structured task candidates.
+- [x] `/v1/matters/{matter_id}/actions/propose` returns proposal without write-back.
+- [x] `/v1/actions/approve` writes approved action to local store.
+- [x] `/v1/matters/{matter_id}/audit` returns approved actions.
+- [x] Automated smoke tests added.
 - [ ] Auth and permission model defined.
-- [ ] Idempotency and retry behavior defined for write endpoints.
+- [x] Idempotency behavior defined for approval write-back.
 
 ### QA
 
 - [x] Manual acceptance tests documented.
-- [ ] Invalid body handling verified.
-- [ ] Invalid matter handling verified across endpoints.
+- [x] Invalid body handling verified by smoke tests.
+- [x] Invalid matter handling documented across endpoints.
 - [ ] No-task informational answer scenario verified.
 - [ ] Factual bullets do not become task candidates.
-- [ ] Approval write-back creates audit record.
+- [x] Approval write-back creates audit and webhook records.
 
 ### Support readiness
 
 - [ ] Support summary drafted.
-- [ ] Common troubleshooting scenarios documented.
+- [x] Common troubleshooting scenarios documented.
 - [ ] Known limitations shared.
 - [ ] Error behavior documented.
 
@@ -66,21 +66,22 @@ The release allows users and API consumers to ask matter-scoped questions, recei
 
 - [x] Swagger UI available locally.
 - [x] API docs include curl examples.
-- [ ] Webhook/event payload documented.
+- [x] Webhook/event payload documented.
 - [ ] Schema versioning documented.
-- [ ] Sandbox data reset instructions documented.
+- [x] Sandbox data reset instructions documented.
 
 ## Support enablement notes
 
 ### What changed?
 
-The prototype now exposes a FastAPI layer for matter-scoped AI actions. API users can call `/ask` to get an answer, sources, and structured task candidates. Proposed or candidate actions still require explicit approval before write-back.
+The prototype now exposes a FastAPI layer for matter-scoped AI actions. API users can call `/v1/matters/{matter_id}/ask` to get an answer, sources, and structured task candidates. Proposed or candidate actions still require explicit approval before write-back.
 
 ### What should Support know?
 
 - `404 Matter not found` means the requested matter ID does not exist in the local demo data.
-- `422 Unprocessable Entity` usually means the request body has the wrong field name or missing required field.
-- `/ask` expects `question`, while `/actions/propose` expects `request`.
+- `422 validation_error` usually means the request body has the wrong field name or missing required field.
+- `400 action_validation_error` means an approved action is missing a required write-back field or has an invalid date.
+- `/v1/matters/{matter_id}/ask` expects `question`, while `/v1/matters/{matter_id}/actions/propose` expects `request`.
 - Apple touch icon 404s in the terminal are harmless browser favicon requests.
 
 ### Expected questions
@@ -91,11 +92,11 @@ A: The answer may have been informational only. The extractor is designed to avo
 
 **Q: Why did the API return 422?**
 
-A: The request body likely used the wrong field. `/ask` requires `question`; `/actions/propose` requires `request`.
+A: The request body likely used the wrong field. `/v1/matters/{matter_id}/ask` requires `question`; `/v1/matters/{matter_id}/actions/propose` requires `request`.
 
 **Q: Why does the action not write immediately after proposal?**
 
-A: Proposals are intentionally read-only. Write-back only happens through `/actions/approve`.
+A: Proposals are intentionally read-only. Write-back only happens through `/v1/actions/approve`.
 
 ## Known limitations
 
@@ -104,9 +105,9 @@ A: Proposals are intentionally read-only. Write-back only happens through `/acti
 - No production auth, permissions, or tenant isolation.
 - No real Filevine API integration.
 - Rule-based task candidate confidence.
-- Manual acceptance tests only.
+- Smoke tests cover the core API contract, but full RAG answer quality still requires manual review.
 - Source references are chunk-level.
 
 ## Release note draft
 
-Mini LOIS CaseOps API now exposes structured task candidates from matter-scoped AI answers. The `/ask` endpoint returns an answer, supporting sources, and action candidate objects that include title, action_type, reason, confidence, source_refs, and original_text. AI-generated actions remain approval-gated: proposed actions do not mutate the matter record until submitted through `/actions/approve`. Approved actions are written to the local matter record and preserved in the audit log.
+Mini LOIS CaseOps API now exposes structured task candidates from matter-scoped AI answers. The `/v1/matters/{matter_id}/ask` endpoint returns an answer, supporting sources, and action candidate objects that include title, action_type, reason, confidence, source_refs, and original_text. AI-generated actions remain approval-gated: proposed actions do not mutate the matter record until submitted through `/v1/actions/approve`. Approved actions are written to the local matter record and preserved in the audit log and webhook-style event log.

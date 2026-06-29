@@ -324,12 +324,12 @@ def _record_webhook_event(
     return int(cursor.lastrowid)
 
 
-def execute_action(
+def _execute_action_with_conn(
+    conn: sqlite3.Connection,
     action: dict[str, Any],
     source_refs: list[str] | None = None,
     original_action: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Execute an approved action and record audit + webhook-style events."""
     action_type = action.get("action_type")
     matter_id = action.get("matter_id")
     now = datetime.now(timezone.utc).isoformat()
@@ -337,98 +337,97 @@ def execute_action(
     if not matter_id:
         raise ValueError("Action payload is missing matter_id.")
 
-    with _connect() as conn:
-        if action_type == "create_task":
-            cursor = conn.execute(
-                """
-                INSERT INTO tasks (matter_id, title, assigned_to, due_date, created_at, reason)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    matter_id,
-                    action.get("title", "Untitled task"),
-                    action.get("assigned_to"),
-                    action.get("due_date"),
-                    now,
-                    action.get("reason"),
-                ),
-            )
-            result_message = "Task created."
-            event_type = "task.created"
-            resource_type = "task"
-            resource_id = str(cursor.lastrowid)
-        elif action_type == "add_note":
-            cursor = conn.execute(
-                """
-                INSERT INTO notes (matter_id, note_text, author, created_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (
-                    matter_id,
-                    action.get("note_text", ""),
-                    action.get("author", "Mini LOIS"),
-                    now,
-                ),
-            )
-            result_message = "Note added."
-            event_type = "note.added"
-            resource_type = "note"
-            resource_id = str(cursor.lastrowid)
-        elif action_type == "create_calendar_event":
-            cursor = conn.execute(
-                """
-                INSERT INTO calendar_events (matter_id, title, event_date, owner, created_at, reason)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    matter_id,
-                    action.get("title", "Untitled calendar event"),
-                    action.get("event_date"),
-                    action.get("owner"),
-                    now,
-                    action.get("reason"),
-                ),
-            )
-            result_message = "Calendar event created."
-            event_type = "calendar_event.created"
-            resource_type = "calendar_event"
-            resource_id = str(cursor.lastrowid)
-        else:
-            raise ValueError(f"Unsupported action_type: {action_type}")
-
-        audit_payload: dict[str, Any]
-        if original_action is not None:
-            audit_payload = {
-                "approved_action": action,
-                "original_model_proposal": original_action,
-                "human_edited": action != original_action,
-            }
-        else:
-            audit_payload = action
-
-        conn.execute(
+    if action_type == "create_task":
+        cursor = conn.execute(
             """
-            INSERT INTO audit_log (matter_id, action_type, action_payload, source_refs, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO tasks (matter_id, title, assigned_to, due_date, created_at, reason)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 matter_id,
-                action_type,
-                json.dumps(audit_payload, indent=2),
-                json.dumps(source_refs or []),
+                action["title"],
+                action.get("assigned_to"),
+                action.get("due_date"),
+                now,
+                action.get("reason"),
+            ),
+        )
+        result_message = "Task created."
+        event_type = "task.created"
+        resource_type = "task"
+        resource_id = str(cursor.lastrowid)
+    elif action_type == "add_note":
+        cursor = conn.execute(
+            """
+            INSERT INTO notes (matter_id, note_text, author, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                matter_id,
+                action["note_text"],
+                action.get("author", "Mini LOIS"),
                 now,
             ),
         )
-        webhook_event_id = _record_webhook_event(
-            conn,
-            event_type=event_type,
-            matter_id=matter_id,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            action=action,
-            source_refs=source_refs,
-            created_at=now,
+        result_message = "Note added."
+        event_type = "note.added"
+        resource_type = "note"
+        resource_id = str(cursor.lastrowid)
+    elif action_type == "create_calendar_event":
+        cursor = conn.execute(
+            """
+            INSERT INTO calendar_events (matter_id, title, event_date, owner, created_at, reason)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                matter_id,
+                action["title"],
+                action["event_date"],
+                action.get("owner"),
+                now,
+                action.get("reason"),
+            ),
         )
+        result_message = "Calendar event created."
+        event_type = "calendar_event.created"
+        resource_type = "calendar_event"
+        resource_id = str(cursor.lastrowid)
+    else:
+        raise ValueError(f"Unsupported action_type: {action_type}")
+
+    audit_payload: dict[str, Any]
+    if original_action is not None:
+        audit_payload = {
+            "approved_action": action,
+            "original_model_proposal": original_action,
+            "human_edited": action != original_action,
+        }
+    else:
+        audit_payload = action
+
+    conn.execute(
+        """
+        INSERT INTO audit_log (matter_id, action_type, action_payload, source_refs, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            matter_id,
+            action_type,
+            json.dumps(audit_payload, indent=2),
+            json.dumps(source_refs or []),
+            now,
+        ),
+    )
+    webhook_event_id = _record_webhook_event(
+        conn,
+        event_type=event_type,
+        matter_id=matter_id,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        action=action,
+        source_refs=source_refs,
+        created_at=now,
+    )
 
     return {
         "message": result_message,
@@ -439,31 +438,43 @@ def execute_action(
     }
 
 
-def get_idempotent_response(
+def execute_action(
+    action: dict[str, Any],
+    source_refs: list[str] | None = None,
+    original_action: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Execute an approved action and record audit + webhook-style events."""
+    with _connect() as conn:
+        return _execute_action_with_conn(conn, action, source_refs, original_action)
+
+
+def execute_action_idempotently(
     *,
     key: str,
     endpoint: str,
     request_payload: dict[str, Any],
-) -> dict[str, Any] | None:
+    action: dict[str, Any],
+    source_refs: list[str] | None = None,
+    original_action: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], bool]:
+    """Execute an action once for an idempotency key and replay the stored result."""
     request_hash = _stable_hash(request_payload)
-    rows = _rows("SELECT * FROM idempotency_keys WHERE key = ?", (key,))
-    if not rows:
-        return None
-    row = rows[0]
-    if row["endpoint"] != endpoint or row["request_hash"] != request_hash:
-        raise ValueError("Idempotency conflict: this key was already used for a different request.")
-    return _json_loads_or_raw(row["response_payload"])
-
-
-def store_idempotent_response(
-    *,
-    key: str,
-    endpoint: str,
-    request_payload: dict[str, Any],
-    response_payload: dict[str, Any],
-) -> None:
     now = datetime.now(timezone.utc).isoformat()
     with _connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM idempotency_keys WHERE key = ?", (key,)).fetchone()
+        if row:
+            if row["endpoint"] != endpoint or row["request_hash"] != request_hash:
+                raise ValueError("Idempotency conflict: this key was already used for a different request.")
+            return _json_loads_or_raw(row["response_payload"]), True
+
+        result = _execute_action_with_conn(conn, action, source_refs, original_action)
+        response_payload = {
+            "status": "executed",
+            "result": result,
+            "approved_action": action,
+            "idempotency": {"key": key, "replayed": False},
+        }
         conn.execute(
             """
             INSERT INTO idempotency_keys (key, endpoint, request_hash, response_payload, created_at)
@@ -472,11 +483,12 @@ def store_idempotent_response(
             (
                 key,
                 endpoint,
-                _stable_hash(request_payload),
+                request_hash,
                 json.dumps(response_payload, indent=2, default=str),
                 now,
             ),
         )
+        return response_payload, False
 
 
 def _slug(value: str) -> str:

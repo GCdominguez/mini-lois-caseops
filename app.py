@@ -267,7 +267,7 @@ with st.sidebar:
     selected_matter_id = selected_label.split(" · ")[0]
     matter = get_matter(selected_matter_id)
     st.info("Run `python ingest.py` before asking questions so Chroma has indexed the fake matter docs.")
-    st.caption("v0.5.8 gates quick tasks by question intent.")
+    st.caption("v0.8 demo: gated quick tasks, approved write-back, audit trail, and API smoke coverage.")
 
 if matter is None:
     st.error("Selected matter not found.")

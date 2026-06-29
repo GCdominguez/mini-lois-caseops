@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -12,21 +13,21 @@ from pydantic import BaseModel, Field
 from actions import propose_action
 from matter_store import (
     execute_action,
+    execute_action_idempotently,
     get_audit_log,
-    get_idempotent_response,
     get_matter,
     get_matters,
     get_tasks,
     get_webhook_events,
     import_external_matter,
     init_database,
-    store_idempotent_response,
 )
 from rag import DEFAULT_LLM_MODEL, answer_question
 from task_extractor import build_task_candidate_objects
 
 API_KEY = os.getenv("MINI_LOIS_API_KEY", "demo-key")
-API_VERSION = "0.7.0"
+API_VERSION = "0.8.0"
+ALLOWED_ACTION_TYPES = {"create_task", "add_note", "create_calendar_event"}
 
 app = FastAPI(title="Mini LOIS CaseOps API", version=API_VERSION)
 init_database()
@@ -74,9 +75,9 @@ def error_payload(
     request: Request,
     error: str,
     message: str,
-    details: Any | None = None,
-) -> dict[str, Any]:
-    payload: dict[str, Any] = {
+    details: Optional[Any] = None,
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
         "error": error,
         "message": message,
         "request_id": request_id(request),
@@ -92,7 +93,7 @@ def raise_api_error(
     request: Request,
     error: str,
     message: str,
-    details: Any | None = None,
+    details: Optional[Any] = None,
 ) -> None:
     raise HTTPException(
         status_code=status_code,
@@ -102,7 +103,7 @@ def raise_api_error(
 
 def require_api_key(
     request: Request,
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
 ) -> str:
     if x_api_key != API_KEY:
         raise_api_error(
@@ -152,6 +153,99 @@ def get_existing_matter_or_404(matter_id: str, request: Request) -> dict[str, An
             details={"matter_id": matter_id},
         )
     return matter
+
+
+def _required_text(action: Dict[str, Any], field: str) -> Optional[str]:
+    value = action.get(field)
+    if value is None:
+        return None
+    value = str(value).strip()
+    return value or None
+
+
+def _optional_date(action: Dict[str, Any], field: str, request: Request) -> Optional[str]:
+    value = action.get(field)
+    if value is None:
+        return None
+    value = str(value).strip()
+    if not value:
+        return None
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        raise_api_error(
+            400,
+            request=request,
+            error="action_validation_error",
+            message=f"approved_action.{field} must use YYYY-MM-DD format.",
+            details={"field": field, "value": value},
+        )
+    return value
+
+
+def validate_approved_action(action: Dict[str, Any], request: Request) -> Dict[str, Any]:
+    action_type = _required_text(action, "action_type")
+    matter_id = _required_text(action, "matter_id")
+    if not matter_id:
+        raise_api_error(
+            400,
+            request=request,
+            error="missing_matter_id",
+            message="approved_action.matter_id is required before an action can be approved.",
+        )
+    if action_type not in ALLOWED_ACTION_TYPES:
+        raise_api_error(
+            400,
+            request=request,
+            error="unsupported_action",
+            message=f"Unsupported action_type: {action_type}",
+            details={"allowed_action_types": sorted(ALLOWED_ACTION_TYPES)},
+        )
+
+    get_existing_matter_or_404(matter_id, request)
+
+    normalized = dict(action)
+    normalized["action_type"] = action_type
+    normalized["matter_id"] = matter_id
+
+    if action_type == "create_task":
+        title = _required_text(action, "title")
+        if not title:
+            raise_api_error(
+                400,
+                request=request,
+                error="action_validation_error",
+                message="approved_action.title is required for create_task.",
+                details={"field": "title", "action_type": action_type},
+            )
+        normalized["title"] = title
+        normalized["due_date"] = _optional_date(action, "due_date", request)
+    elif action_type == "add_note":
+        note_text = _required_text(action, "note_text")
+        if not note_text:
+            raise_api_error(
+                400,
+                request=request,
+                error="action_validation_error",
+                message="approved_action.note_text is required for add_note.",
+                details={"field": "note_text", "action_type": action_type},
+            )
+        normalized["note_text"] = note_text
+    elif action_type == "create_calendar_event":
+        title = _required_text(action, "title")
+        event_date = _optional_date(action, "event_date", request)
+        if not title or not event_date:
+            raise_api_error(
+                400,
+                request=request,
+                error="action_validation_error",
+                message="approved_action.title and approved_action.event_date are required for create_calendar_event.",
+                details={"required_fields": ["title", "event_date"], "action_type": action_type},
+            )
+        normalized["title"] = title
+        normalized["event_date"] = event_date
+
+    return normalized
 
 
 @app.get("/v1/health")
@@ -237,25 +331,19 @@ def _approve_action_impl(
     request: Request,
     idempotency_key: Optional[str],
 ) -> Dict[str, Any]:
-    action = payload.approved_action
-    matter_id = action.get("matter_id")
-    if not matter_id:
-        raise_api_error(
-            400,
-            request=request,
-            error="missing_matter_id",
-            message="approved_action.matter_id is required before an action can be approved.",
-        )
-    get_existing_matter_or_404(str(matter_id), request)
-
-    request_payload = payload.dict()
+    action = validate_approved_action(payload.approved_action, request)
+    request_payload = payload.model_dump() if hasattr(payload, "model_dump") else payload.dict()
+    request_payload["approved_action"] = action
     endpoint = "/v1/actions/approve"
     if idempotency_key:
         try:
-            prior_response = get_idempotent_response(
+            response_payload, replayed = execute_action_idempotently(
                 key=idempotency_key,
                 endpoint=endpoint,
                 request_payload=request_payload,
+                action=action,
+                source_refs=payload.source_refs,
+                original_action=payload.original_model_proposal,
             )
         except ValueError as exc:
             raise_api_error(
@@ -265,9 +353,8 @@ def _approve_action_impl(
                 message=str(exc),
                 details={"idempotency_key": idempotency_key},
             )
-        if prior_response is not None:
-            prior_response["idempotency"] = {"key": idempotency_key, "replayed": True}
-            return prior_response
+        response_payload["idempotency"] = {"key": idempotency_key, "replayed": replayed}
+        return response_payload
 
     try:
         result = execute_action(action, payload.source_refs, original_action=payload.original_model_proposal)
@@ -279,20 +366,12 @@ def _approve_action_impl(
             message=str(exc),
         )
 
-    response_payload: dict[str, Any] = {
+    response_payload: Dict[str, Any] = {
         "status": "executed",
         "result": result,
         "approved_action": action,
         "idempotency": {"applied": False},
     }
-    if idempotency_key:
-        response_payload["idempotency"] = {"key": idempotency_key, "replayed": False}
-        store_idempotent_response(
-            key=idempotency_key,
-            endpoint=endpoint,
-            request_payload=request_payload,
-            response_payload=response_payload,
-        )
     return response_payload
 
 
@@ -365,7 +444,12 @@ def databridge_import(
     _api_key: str = Depends(require_api_key),
 ) -> Dict[str, Any]:
     try:
-        return import_external_matter(payload.dict(exclude_none=True))
+        payload_dict = (
+            payload.model_dump(exclude_none=True)
+            if hasattr(payload, "model_dump")
+            else payload.dict(exclude_none=True)
+        )
+        return import_external_matter(payload_dict)
     except ValueError as exc:
         raise_api_error(
             400,

@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.8
+
+- Fixed the API import/startup path in the local demo environment.
+- Added stricter approved-action validation so missing task titles, missing note text, invalid dates, and unsupported actions return structured API errors before write-back.
+- Moved idempotent approval execution into a single SQLite transaction so duplicate approval requests with the same `Idempotency-Key` replay the stored response without creating duplicate tasks.
+- Added a local demo reset helper at `scripts/demo_reset.py`.
+- Added `unittest` smoke tests for health, auth, approval validation, idempotent task write-back, webhook events, and DataBridge import.
+- Updated setup and API docs to match the `/v1` authenticated API surface.
+
 ## v0.7
 
 - Added versioned `/v1` API routes while keeping unversioned local prototype routes available.
